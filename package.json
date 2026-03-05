@@ -1,0 +1,11 @@
+{
+  "name": "dispatchkit",
+  "version": "0.0.1",
+  "description": "Agent-first job runner. Coming soon.",
+  "keywords": ["cli", "agent", "jobs", "workflow"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MehmetSecgin/dispatch"
+  }
+}

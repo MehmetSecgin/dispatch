@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dispatch — Agent-first job runner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0a0a0b;
+    --bg2: #111114;
+    --bg3: #1a1a1f;
+    --border: #2a2a32;
+    --border-bright: #3d3d4a;
+    --text: #e8e8f0;
+    --muted: #6b6b7e;
+    --accent: #ff6b35;
+    --accent2: #ffb347;
+    --green: #4ade80;
+    --blue: #60a5fa;
+    --purple: #a78bfa;
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Mono', monospace;
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+
+  /* NOISE TEXTURE */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 1000;
+    opacity: 0.4;
+  }
+
+  /* GRID LINES */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: 
+      linear-gradient(rgba(255,107,53,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,107,53,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 0 24px;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* NAV */
+  nav {
+    padding: 24px 0;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: rgba(10,10,11,0.92);
+    backdrop-filter: blur(12px);
+    z-index: 100;
+  }
+
+  nav .inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+
+  .logo {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 1.2rem;
+    letter-spacing: -0.02em;
+    color: var(--text);
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .logo-dot {
+    width: 8px;
+    height: 8px;
+    background: var(--accent);
+    border-radius: 50%;
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.8); }
+  }
+
+  nav a {
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    transition: color 0.2s;
+  }
+
+  nav a:hover { color: var(--text); }
+
+  nav .nav-links { display: flex; gap: 32px; align-items: center; }
+
+  .nav-cta {
+    background: var(--accent) !important;
+    color: var(--bg) !important;
+    padding: 6px 16px;
+    border-radius: 2px;
+    font-weight: 500;
+  }
+
+  /* HERO */
+  .hero {
+    padding: 100px 0 80px;
+    position: relative;
+  }
+
+  .hero-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    border: 1px solid rgba(255,107,53,0.3);
+    padding: 4px 12px;
+    border-radius: 2px;
+    margin-bottom: 32px;
+  }
+
+  .hero-tag::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    background: var(--accent);
+    border-radius: 50%;
+  }
+
+  h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: clamp(2.8rem, 7vw, 5.5rem);
+    font-weight: 800;
+    line-height: 0.95;
+    letter-spacing: -0.03em;
+    margin-bottom: 24px;
+  }
+
+  h1 .line1 { display: block; color: var(--text); }
+  h1 .line2 {
+    display: block;
+    color: transparent;
+    -webkit-text-stroke: 1px var(--border-bright);
+  }
+  h1 .accent-word { color: var(--accent); }
+
+  .hero-sub {
+    font-size: 0.95rem;
+    color: var(--muted);
+    max-width: 480px;
+    margin-bottom: 40px;
+    line-height: 1.8;
+  }
+
+  .hero-sub strong { color: var(--text); font-weight: 500; }
+
+  .hero-actions {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: var(--bg);
+    border: none;
+    padding: 10px 24px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    border-radius: 2px;
+    text-decoration: none;
+    transition: all 0.15s;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .btn-primary:hover { background: var(--accent2); transform: translateY(-1px); }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    padding: 10px 24px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.8rem;
+    cursor: pointer;
+    border-radius: 2px;
+    text-decoration: none;
+    transition: all 0.15s;
+  }
+
+  .btn-ghost:hover { border-color: var(--border-bright); color: var(--text); }
+
+  /* TERMINAL */
+  .terminal-wrap {
+    margin: 60px 0;
+    position: relative;
+  }
+
+  .terminal-wrap::before {
+    content: '';
+    position: absolute;
+    top: -1px; left: -1px; right: -1px; bottom: -1px;
+    background: linear-gradient(135deg, rgba(255,107,53,0.2), transparent 50%);
+    border-radius: 4px;
+    z-index: -1;
+  }
+
+  .terminal {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .terminal-bar {
+    background: var(--bg3);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .t-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+  }
+  .t-dot.r { background: #ff5f57; }
+  .t-dot.y { background: #ffbd2e; }
+  .t-dot.g { background: #28c840; }
+
+  .terminal-title {
+    font-size: 0.7rem;
+    color: var(--muted);
+    margin-left: auto;
+    margin-right: auto;
+    letter-spacing: 0.05em;
+  }
+
+  .terminal-body {
+    padding: 24px;
+    font-size: 0.82rem;
+    line-height: 2;
+  }
+
+  .t-line { display: flex; align-items: flex-start; gap: 8px; }
+  .t-prompt { color: var(--accent); user-select: none; flex-shrink: 0; }
+  .t-cmd { color: var(--text); }
+  .t-comment { color: var(--muted); }
+  .t-out { color: var(--green); padding-left: 16px; }
+  .t-out.dim { color: var(--muted); }
+  .t-out.info { color: var(--blue); }
+  .t-gap { height: 8px; }
+
+  /* INVERSION SECTION */
+  .inversion {
+    padding: 60px 0;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .inversion-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2px;
+  }
+
+  .inv-card {
+    padding: 32px;
+    background: var(--bg2);
+  }
+
+  .inv-card:first-child { border-radius: 4px 0 0 4px; }
+  .inv-card:last-child { border-radius: 0 4px 4px 0; }
+
+  .inv-label {
+    font-size: 0.65rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-bottom: 16px;
+    color: var(--muted);
+  }
+
+  .inv-card.bad .inv-label { color: var(--muted); }
+  .inv-card.good .inv-label { color: var(--accent); }
+
+  .inv-card h3 {
+    font-family: 'Syne', sans-serif;
+    font-size: 1.3rem;
+    font-weight: 700;
+    margin-bottom: 12px;
+    line-height: 1.2;
+  }
+
+  .inv-card.bad h3 { color: var(--muted); }
+  .inv-card.good h3 { color: var(--text); }
+
+  .inv-card p {
+    font-size: 0.78rem;
+    color: var(--muted);
+    line-height: 1.8;
+  }
+
+  .inv-card.good p { color: var(--text); opacity: 0.7; }
+
+  /* CONCEPTS */
+  .concepts {
+    padding: 80px 0;
+  }
+
+  .section-label {
+    font-size: 0.65rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 40px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .section-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .concepts-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .concept-card {
+    background: var(--bg);
+    padding: 32px;
+    transition: background 0.2s;
+  }
+
+  .concept-card:hover { background: var(--bg2); }
+
+  .concept-icon {
+    font-size: 1.4rem;
+    margin-bottom: 16px;
+    display: block;
+  }
+
+  .concept-card h4 {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 1rem;
+    margin-bottom: 8px;
+    color: var(--text);
+  }
+
+  .concept-card p {
+    font-size: 0.75rem;
+    color: var(--muted);
+    line-height: 1.8;
+  }
+
+  .concept-card code {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    padding: 1px 6px;
+    border-radius: 2px;
+    font-size: 0.7rem;
+    color: var(--blue);
+  }
+
+  /* OUTPUT CONTRACT */
+  .contract {
+    padding: 80px 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .contract-cols {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-top: 40px;
+  }
+
+  .contract-block {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .contract-block-label {
+    background: var(--bg3);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 16px;
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .contract-block pre {
+    padding: 20px;
+    font-size: 0.72rem;
+    line-height: 1.8;
+    overflow-x: auto;
+  }
+
+  .json-key { color: var(--blue); }
+  .json-str { color: var(--green); }
+  .json-bool { color: var(--accent); }
+  .json-num { color: var(--purple); }
+  .json-muted { color: var(--muted); }
+
+  /* EXIT CODES */
+  .exit-codes {
+    margin-top: 40px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .exit-code {
+    background: var(--bg);
+    padding: 20px;
+    text-align: center;
+  }
+
+  .exit-num {
+    font-family: 'Syne', sans-serif;
+    font-size: 2rem;
+    font-weight: 800;
+    display: block;
+    margin-bottom: 4px;
+  }
+
+  .exit-code:nth-child(1) .exit-num { color: var(--green); }
+  .exit-code:nth-child(2) .exit-num { color: #f87171; }
+  .exit-code:nth-child(3) .exit-num { color: var(--accent2); }
+  .exit-code:nth-child(4) .exit-num { color: var(--blue); }
+
+  .exit-label {
+    font-size: 0.65rem;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+    line-height: 1.4;
+  }
+
+  /* SKILL SECTION */
+  .skill-section {
+    padding: 80px 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .skill-cols {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 48px;
+    align-items: center;
+    margin-top: 40px;
+  }
+
+  .skill-text h3 {
+    font-family: 'Syne', sans-serif;
+    font-size: 1.6rem;
+    font-weight: 700;
+    margin-bottom: 16px;
+    line-height: 1.2;
+  }
+
+  .skill-text p {
+    font-size: 0.78rem;
+    color: var(--muted);
+    line-height: 1.9;
+    margin-bottom: 12px;
+  }
+
+  .skill-text strong { color: var(--text); font-weight: 500; }
+
+  .skill-file {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .skill-file-bar {
+    background: var(--bg3);
+    border-bottom: 1px solid var(--border);
+    padding: 8px 16px;
+    font-size: 0.65rem;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .skill-file pre {
+    padding: 20px;
+    font-size: 0.7rem;
+    line-height: 1.9;
+    color: var(--muted);
+  }
+
+  .skill-file .sk-head { color: var(--accent); }
+  .skill-file .sk-key { color: var(--blue); }
+  .skill-file .sk-val { color: var(--text); }
+  .skill-file .sk-comment { color: var(--border-bright); }
+
+  /* FOOTER */
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 40px 0;
+    text-align: center;
+  }
+
+  footer p {
+    font-size: 0.7rem;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+  }
+
+  footer a { color: var(--accent); text-decoration: none; }
+
+  /* ANIMATIONS */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .hero > * {
+    animation: fadeUp 0.6s ease both;
+  }
+
+  .hero-tag { animation-delay: 0.1s; }
+  h1 { animation-delay: 0.2s; }
+  .hero-sub { animation-delay: 0.3s; }
+  .hero-actions { animation-delay: 0.4s; }
+  .terminal-wrap { animation-delay: 0.5s; }
+
+  /* RESPONSIVE */
+  @media (max-width: 640px) {
+    .inversion-grid, .concepts-grid, .contract-cols, .skill-cols {
+      grid-template-columns: 1fr;
+    }
+    .exit-codes { grid-template-columns: repeat(2, 1fr); }
+    .inv-card:first-child { border-radius: 4px 4px 0 0; }
+    .inv-card:last-child { border-radius: 0 0 4px 4px; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="inner">
+    <a href="#" class="logo">
+      <div class="logo-dot"></div>
+      dispatch
+    </a>
+    <div class="nav-links">
+      <a href="#concepts">Concepts</a>
+      <a href="#contract">Contract</a>
+      <a href="https://github.com/MehmetSecgin/dispatch" class="nav-cta">GitHub →</a>
+    </div>
+  </div>
+</nav>
+
+<div class="container">
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero-tag">Agent-first CLI framework</div>
+    <h1>
+      <span class="line1">Built for</span>
+      <span class="line1"><span class="accent-word">agents.</span></span>
+      <span class="line2">Comfortable</span>
+      <span class="line2">for humans.</span>
+    </h1>
+    <p class="hero-sub">
+      Write a job. Brief your agent. Ship it.<br><br>
+      Dispatch is a <strong>modular job runner</strong> with a stable output contract,
+      deterministic artifacts, and a first-class agent briefing format —
+      so your AI agent doesn't guess, it <strong>dispatches</strong>.
+    </p>
+    <div class="hero-actions">
+      <a href="https://github.com/MehmetSecgin/dispatch" class="btn-primary">→ GitHub</a>
+      <a href="https://github.com/MehmetSecgin/dispatch#readme" class="btn-ghost">Read the docs</a>
+    </div>
+
+    <!-- TERMINAL -->
+    <div class="terminal-wrap">
+      <div class="terminal">
+        <div class="terminal-bar">
+          <div class="t-dot r"></div>
+          <div class="t-dot y"></div>
+          <div class="t-dot g"></div>
+          <span class="terminal-title">dispatch — agent session</span>
+        </div>
+        <div class="terminal-body">
+          <div class="t-line"><span class="t-prompt">$</span><span class="t-cmd">dispatch doctor</span></div>
+          <div class="t-line"><span class="t-out">✓ credentials configured</span></div>
+          <div class="t-line"><span class="t-out">✓ modules loaded (4 built-in, 2 local)</span></div>
+          <div class="t-line"><span class="t-out">✓ endpoint reachable</span></div>
+          <div class="t-gap"></div>
+          <div class="t-line"><span class="t-prompt">$</span><span class="t-cmd">dispatch job validate --case jobs/create-verify.job.json</span></div>
+          <div class="t-line"><span class="t-out">✓ Valid create-verify.job.json</span></div>
+          <div class="t-gap"></div>
+          <div class="t-line"><span class="t-prompt">$</span><span class="t-cmd">dispatch job run --case jobs/create-verify.job.json</span></div>
+          <div class="t-line"><span class="t-out info">  ↳ api.create-event          200  341ms</span></div>
+          <div class="t-line"><span class="t-out info">  ↳ flow.poll (event-visible)  ···  1.2s</span></div>
+          <div class="t-line"><span class="t-out info">  ↳ api.verify-event          200  89ms</span></div>
+          <div class="t-line"><span class="t-out">✓ Job complete  run-id: run_a3f9b2  2.1s</span></div>
+          <div class="t-gap"></div>
+          <div class="t-line"><span class="t-prompt">$</span><span class="t-cmd">dispatch job assert --run-id latest</span></div>
+          <div class="t-line"><span class="t-out">✓ Assertions passed (3/3)</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- INVERSION -->
+  <section class="inversion">
+    <div class="inversion-grid">
+      <div class="inv-card bad">
+        <div class="inv-label">Most CLIs</div>
+        <h3>Built for humans.<br/>Tolerated by agents.</h3>
+        <p>Add <code style="background:transparent;border:none;color:inherit">--json</code> and call it done. Agents scrape human-readable text, parse spinner output, guess at retry logic, and break on every version bump.</p>
+      </div>
+      <div class="inv-card good">
+        <div class="inv-label">Dispatch</div>
+        <h3>Built for agents.<br/>Comfortable for humans.</h3>
+        <p>Stable JSON envelopes. Structured error codes. Deterministic artifacts. A briefing format your agent reads before it acts. The human experience is layered on top — not the other way around.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- CONCEPTS -->
+  <section class="concepts" id="concepts">
+    <div class="section-label">Core concepts</div>
+    <div class="concepts-grid">
+      <div class="concept-card">
+        <span class="concept-icon">📋</span>
+        <h4>Jobs</h4>
+        <p>A sequence of module actions defined in a portable <code>.job.json</code> case file. Shareable, versionable, replayable. The agent's unit of work.</p>
+      </div>
+      <div class="concept-card">
+        <span class="concept-icon">🧩</span>
+        <h4>Modules</h4>
+        <p>Pluggable wrappers around API surfaces. Built-ins handle flow primitives. Bring your own for private APIs — packaged as <code>.dpmod.zip</code> bundles.</p>
+      </div>
+      <div class="concept-card">
+        <span class="concept-icon">📄</span>
+        <h4>SKILL.md</h4>
+        <p>The agent briefing. A structured contract that tells any AI agent how to operate your setup: happy path, troubleshooting ladder, command surface. Drop it in context. It knows what to do.</p>
+      </div>
+      <div class="concept-card">
+        <span class="concept-icon">🗂️</span>
+        <h4>Artifacts</h4>
+        <p>Every run writes a full record: requests, responses, events, module resolution. Assert offline. Replay later. Hand it to your agent as context without a network call.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- OUTPUT CONTRACT -->
+  <section class="contract" id="contract">
+    <div class="section-label">Output contract</div>
+
+    <div class="contract-cols">
+      <div class="contract-block">
+        <div class="contract-block-label">Human mode (default)</div>
+        <pre>
+<span style="color:#4ade80">✓</span> Job complete
+  run-id: run_a3f9b2
+  event:  evt_00123
+  web:    https://...
+  dir:    run-output/run_a3f9b2
+
+<span style="color:#4ade80">✓</span> Assertions passed (3/3)</pre>
+      </div>
+      <div class="contract-block">
+        <div class="contract-block-label">Machine mode (--json)</div>
+        <pre>{
+  <span class="json-key">"status"</span>: <span class="json-str">"ok"</span>,
+  <span class="json-key">"runId"</span>: <span class="json-str">"run_a3f9b2"</span>,
+  <span class="json-key">"jobType"</span>: <span class="json-str">"create-verify"</span>,
+  <span class="json-key">"durationMs"</span>: <span class="json-num">2143</span>,
+  <span class="json-key">"eventId"</span>: <span class="json-str">"evt_00123"</span>,
+  <span class="json-key">"passed"</span>: <span class="json-bool">true</span>,
+  <span class="json-key">"retryable"</span>: <span class="json-bool">false</span>
+}</pre>
+      </div>
+    </div>
+
+    <div class="exit-codes">
+      <div class="exit-code">
+        <span class="exit-num">0</span>
+        <div class="exit-label">Success</div>
+      </div>
+      <div class="exit-code">
+        <span class="exit-num">1</span>
+        <div class="exit-label">Internal error</div>
+      </div>
+      <div class="exit-code">
+        <span class="exit-num">2</span>
+        <div class="exit-label">Usage / input error</div>
+      </div>
+      <div class="exit-code">
+        <span class="exit-num">3</span>
+        <div class="exit-label">Transient — retry safe</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SKILL.md -->
+  <section class="skill-section">
+    <div class="section-label">The briefing format</div>
+    <div class="skill-cols">
+      <div class="skill-text">
+        <h3>Your agent reads<br/>SKILL.md first.</h3>
+        <p>
+          Every Dispatch setup ships with a <strong>SKILL.md</strong> — a structured document your AI agent reads before acting.
+        </p>
+        <p>
+          It defines the preflight sequence, the happy path, the troubleshooting ladder. The agent doesn't explore. It follows the brief.
+        </p>
+        <p>
+          Write your own for private modules. The format is open. The contract is yours.
+        </p>
+      </div>
+      <div class="skill-file">
+        <div class="skill-file-bar">📄 SKILL.md</div>
+        <pre>
+<span class="sk-head">---</span>
+<span class="sk-key">name</span>: <span class="sk-val">my-api-dispatch</span>
+<span class="sk-key">description</span>: <span class="sk-val">API workflows via dispatch</span>
+<span class="sk-head">---</span>
+
+<span class="sk-head">## Preflight</span>
+<span class="sk-val">1. dispatch doctor --no-network</span>
+<span class="sk-val">2. dispatch self-check</span>
+
+<span class="sk-head">## Default Flow</span>
+<span class="sk-val">1. dispatch job validate --case &lt;path&gt;</span>
+<span class="sk-val">2. dispatch job run --case &lt;path&gt;</span>
+<span class="sk-val">3. dispatch job assert --run-id latest</span>
+
+<span class="sk-head">## Troubleshooting</span>
+<span class="sk-val">1. dispatch job inspect --run-id latest</span>
+<span class="sk-val">2. dispatch job readable --run-id latest</span>
+<span class="sk-comment"># check calls/*.response.json</span>
+        </pre>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<footer>
+  <p>dispatch — MIT license &nbsp;·&nbsp; <a href="https://github.com/MehmetSecgin/dispatch">GitHub</a> &nbsp;·&nbsp; <a href="https://github.com/MehmetSecgin">@MehmetSecgin</a> &nbsp;·&nbsp; <a href="https://www.linkedin.com/in/mehmetscgn/">LinkedIn</a></p>
+</footer>
+
+</body>
+</html>
