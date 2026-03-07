@@ -1,11 +1,68 @@
 {
-  "name": "dispatchkit",
+  "name": "dispatch",
   "version": "0.0.1",
-  "description": "Agent-first job runner. Coming soon.",
-  "keywords": ["cli", "agent", "jobs", "workflow"],
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/MehmetSecgin/dispatch"
+  "description": "Deterministic dispatch CLI for flow-first job orchestration",
+  "scripts": {
+    "prebuild": "node scripts/write-skill-version.mjs",
+    "build": "tsup src/index.ts src/cli.ts --format esm --out-dir dist --clean --dts",
+    "dev": "tsx src/cli.ts",
+    "check": "tsc --noEmit",
+    "format": "prettier --write src/**/*.ts",
+    "format:check": "prettier --check src/**/*.ts",
+    "lint": "eslint src/**/*.ts",
+    "lint:fix": "eslint src/**/*.ts --fix",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [
+    "dispatch",
+    "cli",
+    "orchestration",
+    "flow"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js"
+    }
+  },
+  "bin": {
+    "dispatch": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "dependencies": {
+    "boxen": "^8.0.1",
+    "chalk": "^5.6.2",
+    "commander": "^14.0.3",
+    "debug": "^4.4.3",
+    "figures": "^6.1.0",
+    "jsonpath-plus": "^10.4.0",
+    "listr2": "^9.0.5",
+    "log-symbols": "^7.0.1",
+    "undici": "^7.22.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/debug": "^4.1.12",
+    "@types/node": "^25.3.2",
+    "@typescript-eslint/eslint-plugin": "^8.56.1",
+    "@typescript-eslint/parser": "^8.56.1",
+    "eslint": "^10.0.3",
+    "prettier": "^3.8.1",
+    "tsup": "^8.5.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
   }
 }

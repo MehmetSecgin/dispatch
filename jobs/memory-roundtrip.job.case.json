@@ -1,0 +1,31 @@
+
+  {
+    "schemaVersion": 1,
+    "jobType": "memory-roundtrip",
+    "scenario": {
+      "steps": [
+        {
+          "id": "store",
+          "action": "memory.store",
+          "payload": {
+            "key": "greeting",
+            "value": "hello from dispatch"
+          }
+        },
+        {
+          "id": "recall",
+          "action": "memory.recall",
+          "payload": {
+            "key": "greeting"
+          }
+        },
+        {
+          "id": "forget",
+          "action": "memory.forget",
+          "payload": {
+            "key": "greeting"
+          }
+        }
+      ]
+    }
+  }

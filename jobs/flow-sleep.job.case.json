@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "jobType": "flow-sleep",
+  "scenario": {
+    "steps": [
+      {
+        "id": "pause",
+        "action": "flow.sleep",
+        "payload": {
+          "duration": "1s"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,8 @@
+run-output/
+tmp/
+release/
+node_modules/
+dist/
+jobs/imported/
+Briefing.md
+.claude/
