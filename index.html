@@ -918,7 +918,7 @@ footer {
         </div>
         <div class="tg"></div>
         <div class="tl"><span class="tp">$</span><span class="tc">dispatch job validate --case register-webhook</span></div>
-        <div class="tl"><span class="to">✓ Valid  register-webhook.job.json</span></div>
+        <div class="tl"><span class="to">✓ Valid  register-webhook.job.case.json</span></div>
         <div class="tg"></div>
         <div class="tl"><span class="tp">$</span><span class="tc">dispatch job run --case register-webhook</span></div>
         <div class="tl"><span class="ti">  ↳ POST /webhooks/register       201  143ms</span></div>
@@ -964,7 +964,7 @@ footer {
     <div class="concept">
       <span class="concept-num">01</span>
       <h4>Jobs</h4>
-      <p>A sequence of module actions in a portable <code>.job.json</code> file. The agent's unit of work. Shareable, versionable, replayable.</p>
+      <p>A sequence of module actions in a portable <code>.job.case.json</code> or <code>.job.seed.json</code> file. The agent's unit of work. Shareable, versionable, replayable.</p>
     </div>
     <div class="concept">
       <span class="concept-num">02</span>
@@ -1007,13 +1007,18 @@ footer {
       <div class="json-block">
         <div class="json-block-label">Machine mode — --json</div>
         <pre>{
-  <span class="jk">"status"</span>:     <span class="jv">"ok"</span>,
-  <span class="jk">"runId"</span>:      <span class="jv">"run_c7d1a9"</span>,
-  <span class="jk">"jobType"</span>:    <span class="jv">"register-webhook"</span>,
-  <span class="jk">"durationMs"</span>:  <span class="jn">1412</span>,
-  <span class="jk">"webhookId"</span>:  <span class="jv">"wh_9f2a"</span>,
-  <span class="jk">"passed"</span>:     <span class="jb">true</span>,
-  <span class="jk">"retryable"</span>:  <span class="jb">false</span>
+  <span class="jk">"cliVersion"</span>: <span class="jv">"0.0.1"</span>,
+  <span class="jk">"jobType"</span>: <span class="jv">"register-webhook"</span>,
+  <span class="jk">"status"</span>: <span class="jv">"SUCCESS"</span>,
+  <span class="jk">"runId"</span>: <span class="jv">"20260306-162116-job-run-716a47b"</span>,
+  <span class="jk">"runDir"</span>: <span class="jv">"~/dispatch/run-output/..."</span>,
+  <span class="jk">"moduleResolutionPath"</span>: <span class="jv">"~/dispatch/run-output/.../module_resolution.json"</span>,
+  <span class="jk">"next"</span>: [
+    {
+      <span class="jk">"command"</span>: <span class="jv">"dispatch job assert --run-id 20260306-162116-job-run-716a47b"</span>,
+      <span class="jk">"description"</span>: <span class="jv">"verify outcomes"</span>
+    }
+  ]
 }</pre>
       </div>
     </div>
@@ -1049,13 +1054,18 @@ footer {
 <span class="sk-c">---</span>
 
 <span class="sk-h">## Preflight</span>
-<span class="sk-cmd">1. dispatch doctor --no-network</span>
+<span class="sk-cmd">1. dispatch doctor</span>
 <span class="sk-cmd">2. dispatch self-check</span>
 
 <span class="sk-h">## Default Flow</span>
 <span class="sk-cmd">1. dispatch job validate --case &lt;path&gt;</span>
 <span class="sk-cmd">2. dispatch job run --case &lt;path&gt;</span>
 <span class="sk-cmd">3. dispatch job assert --run-id latest</span>
+
+<span class="sk-h">## Memory Rules</span>
+<span class="sk-c"># .job.case.json may recall memory only</span>
+<span class="sk-c"># .job.seed.json may store/forget memory</span>
+<span class="sk-c"># use --resolve-deps only when fill jobs are declared</span>
 
 <span class="sk-h">## Troubleshooting</span>
 <span class="sk-cmd">1. dispatch job inspect --run-id latest</span>
