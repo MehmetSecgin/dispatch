@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
+import fs from 'node:fs';
+import path from 'node:path';
 import packageJson from '../package.json' with { type: 'json' };
 import { registerJobCommands } from './commands/job.js';
 import { registerModuleCommands } from './commands/module.js';
@@ -19,6 +21,7 @@ import {
 	loadRuntimeOverrides,
 	saveRuntimeOverrides
 } from './execution/runtime-overrides.js';
+import { defaultRuntime } from './data/run-data.js';
 import {
 	createRenderer,
 	formatCliError,
@@ -26,6 +29,12 @@ import {
 	paint
 } from './output/renderer.js';
 import { loadModuleRegistry } from './modules/index.js';
+import {
+	listMemoryNamespaces,
+	readMemoryNamespace,
+	resolveMemoryPath,
+	resolveMemoryRoot
+} from './modules/builtin/memory/store.js';
 import { readJson } from './utils/fs-json.js';
 import {
 	cliErrorFromCode,
@@ -216,6 +225,70 @@ async function main(): Promise<void> {
 			renderer.render({
 				json: { path: getActionDefaultsPath(), values: data },
 				human: paint('✓ defaults updated', 'success', isColorEnabled(opts))
+			});
+		});
+
+	const memory = program.command('memory').description('Inspect persistent memory namespaces');
+	memory
+		.command('list')
+		.description('List memory namespaces')
+		.action(() => {
+			const opts = program.opts();
+			const renderer = createRenderer({
+				json: !!opts.json,
+				color: isColorEnabled(opts)
+			});
+			const configDir = defaultRuntime(CLI_VERSION).configDir;
+			const namespaces = listMemoryNamespaces(configDir).map((entry) => ({
+				namespace: entry.namespace,
+				path: entry.path
+			}));
+			const out = {
+				root: resolveMemoryRoot(configDir),
+				namespaces
+			};
+			renderer.render({
+				json: out,
+				human:
+					namespaces.length === 0
+						? [`Memory root: ${out.root}`, 'No memory namespaces found.']
+						: [
+								`Memory root: ${out.root}`,
+								...namespaces.map((entry) => `- ${entry.namespace}  ${entry.path}`)
+						  ]
+			});
+		});
+
+	memory
+		.command('inspect')
+		.description('Inspect one memory namespace')
+		.requiredOption('--namespace <name>')
+		.action((cmd) => {
+			const opts = program.opts();
+			const renderer = createRenderer({
+				json: !!opts.json,
+				color: isColorEnabled(opts)
+			});
+			const configDir = defaultRuntime(CLI_VERSION).configDir;
+			const namespace = String(cmd.namespace).trim();
+			const filePath = resolveMemoryPath(configDir, namespace);
+			if (!fs.existsSync(filePath)) {
+				const message = `Memory namespace not found: ${namespace}`;
+				renderer.render({
+					json: jsonErrorEnvelope(cliErrorFromCode('NOT_FOUND', message)),
+					human: `Error: ${message}`
+				});
+				process.exitCode = exitCodeForCliError(cliErrorFromCode('NOT_FOUND', message));
+				return;
+			}
+			const out = {
+				namespace,
+				path: filePath,
+				values: readMemoryNamespace(configDir, namespace)
+			};
+			renderer.render({
+				json: out,
+				human: [`Namespace: ${namespace}`, `Path:      ${filePath}`, JSON.stringify(out.values, null, 2)]
 			});
 		});
 

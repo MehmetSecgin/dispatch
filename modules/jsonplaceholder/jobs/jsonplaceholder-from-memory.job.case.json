@@ -8,7 +8,7 @@
         "key": "users.user-1",
         "fill": {
           "module": "jsonplaceholder",
-          "job": "cache-user-1"
+          "job": "seed-user-1-reference"
         }
       }
     ]

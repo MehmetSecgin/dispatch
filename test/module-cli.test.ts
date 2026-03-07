@@ -22,6 +22,19 @@ function runCli(args: string[]) {
   };
 }
 
+function runCliHuman(args: string[]) {
+  const out = spawnSync(process.execPath, ['--import', 'tsx', 'src/cli.ts', ...args], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+  });
+
+  return {
+    status: out.status,
+    stderr: out.stderr,
+    stdout: out.stdout,
+  };
+}
+
 afterEach(() => {
   for (const entry of fs.readdirSync(os.tmpdir())) {
     if (entry.startsWith('dispatch-module-validate-test-')) {
@@ -59,11 +72,20 @@ describe('module CLI', () => {
     expect(result.json?.jobs).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          id: 'cache-user-1',
+          id: 'seed-user-1-reference',
           kind: 'seed',
         }),
       ]),
     );
+  });
+
+  it('separates case jobs and seed jobs in human inspect output', () => {
+    const result = runCliHuman(['module', 'inspect', 'jsonplaceholder']);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Case Jobs:');
+    expect(result.stdout).toContain('Seed Jobs:');
+    expect(result.stdout).toContain('Seed job seed-user-1-reference');
   });
 
   it('fails module validate when a case job mutates memory', () => {

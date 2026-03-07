@@ -40,7 +40,12 @@ import { JobCaseSchema } from '../core/schema.js';
 import { loadActionDefaults } from '../execution/action-defaults.js';
 import { HttpPoolRegistry } from '../services/http-pool.js';
 import { inspectBatchSummary, resolveBatchSummaryPath } from '../job/batch-inspect.js';
-import { inspectJobDependencies, resolveJobDependencies, type DependencyIssue } from '../job/dependencies.js';
+import {
+  inspectJobDependencies,
+  resolveJobDependencies,
+  summarizeDeclaredMemoryDependencies,
+  type DependencyIssue,
+} from '../job/dependencies.js';
 import { cliErrorFromCode, exitCodeForCliError, jsonErrorEnvelope } from '../core/errors.js';
 import { nextActionsForJobAssert, nextActionsForJobRun, nextActionsForRunMany } from '../job/next-actions.js';
 
@@ -91,6 +96,15 @@ function formatDependencyIssue(issue: DependencyIssue): string {
   return issue.fill
     ? `${location}: ${issue.message} (fill: ${issue.fill.module}:${issue.fill.job})`
     : `${location}: ${issue.message}`;
+}
+
+function formatDeclaredMemoryDependency(input: {
+  namespace: string;
+  key: string;
+  fill?: { module: string; job: string };
+}): string {
+  const location = `${input.namespace}.${input.key}`;
+  return input.fill ? `${location} (seed: ${input.fill.module}:${input.fill.job})` : location;
 }
 
 export function registerJobCommands(
@@ -842,6 +856,7 @@ export function registerJobCommands(
         registry,
         configDir: defaultRuntime(deps.cliVersion).configDir,
       });
+      const declaredMemoryDeps = summarizeDeclaredMemoryDependencies(parsed.data);
       const valid = result.valid && dependencyCheck.valid;
       if (!!opts.json) {
         if (valid) {
@@ -864,6 +879,12 @@ export function registerJobCommands(
           json: null,
           human: [
             `✓ Valid ${userPathDisplay(String(cmd.case))}`,
+            ...(declaredMemoryDeps.length > 0
+              ? [
+                  `! Memory deps:`,
+                  ...declaredMemoryDeps.map((dep) => `  - ${formatDeclaredMemoryDependency(dep)}`),
+                ]
+              : []),
             ...[...warnings, ...result.warnings].map((w) => `! ${w}`),
           ],
         });
