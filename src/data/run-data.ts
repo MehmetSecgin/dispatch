@@ -6,6 +6,8 @@ import { JobCaseSchema } from '../core/schema.js';
 import { RuntimeContext } from '../execution/interpolation.js';
 import { ROOT_DIR } from './paths.js';
 
+export type JobFileKind = 'seed' | 'case';
+
 export function readJsonMaybe(filePath: string | null | undefined): unknown {
   if (!filePath || !fs.existsSync(filePath)) return null;
   const raw = fs.readFileSync(filePath, 'utf8').trim();
@@ -73,6 +75,12 @@ export function loadCase(casePath: string) {
   const resolved = resolveCasePath(casePath);
   const parsed = JSON.parse(fs.readFileSync(resolved, 'utf8'));
   return JobCaseSchema.parse(parsed);
+}
+
+export function inferJobFileKind(casePath: string | null | undefined): JobFileKind {
+  const normalized = String(casePath || '').trim();
+  if (normalized.endsWith('.job.seed.json')) return 'seed';
+  return 'case';
 }
 
 export function resolveCasePath(inputPath: string): string {

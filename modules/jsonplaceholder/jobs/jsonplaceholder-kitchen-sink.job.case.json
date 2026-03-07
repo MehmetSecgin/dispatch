@@ -18,21 +18,6 @@
         }
       },
       {
-        "id": "remember-post",
-        "action": "memory.store",
-        "payload": {
-          "key": "jsonplaceholder.selected-post-id",
-          "value": "${jsonpath(step:list-user-posts, $[0].id)}"
-        }
-      },
-      {
-        "id": "recall-post",
-        "action": "memory.recall",
-        "payload": {
-          "key": "jsonplaceholder.selected-post-id"
-        }
-      },
-      {
         "id": "pause",
         "action": "flow.sleep",
         "payload": {
@@ -45,7 +30,7 @@
         "payload": {
           "action": "jsonplaceholder.get-post",
           "payload": {
-            "id": "${step.recall-post.response.value}"
+            "id": "${jsonpath(step:list-user-posts, $[0].id)}"
           },
           "intervalMs": 500,
           "maxDurationMs": 5000,
@@ -77,13 +62,6 @@
           "title": "Dispatch follow-up: ${run.postTitle}",
           "body": "First commenter: ${jsonpath(step:list-comments, $[0].email)}",
           "userId": "${step.user.response.id}"
-        }
-      },
-      {
-        "id": "forget-post",
-        "action": "memory.forget",
-        "payload": {
-          "key": "jsonplaceholder.selected-post-id"
         }
       }
     ]

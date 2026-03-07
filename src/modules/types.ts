@@ -5,6 +5,13 @@ import { JobStep } from '../core/schema.js';
 import { HttpTransport } from '../transport/http.js';
 
 export type ModuleLayer = 'builtin' | 'repo' | 'user';
+export type ModuleJobKind = 'seed' | 'case';
+
+export interface ModuleJobDefinition {
+  id: string;
+  kind: ModuleJobKind;
+  path: string;
+}
 
 export interface ActionResult {
   response?: unknown;
@@ -62,6 +69,7 @@ export interface ModuleDefinition {
   sourcePath: string;
   metadata?: Record<string, unknown>;
   actions: Record<string, ModuleAction>;
+  jobs?: ModuleJobDefinition[];
 }
 
 export interface ResolvedAction {

@@ -27,6 +27,7 @@ export function moduleInfo(def: ModuleDefinition) {
     layer: def.layer,
     sourcePath: def.sourcePath,
     actionCount: Object.keys(def.actions).length,
+    jobs: [...(def.jobs ?? [])],
     actions: Object.entries(def.actions).map(([name, a]) => ({
       key: `${def.name}.${name}`,
       description: a.description ?? null,
