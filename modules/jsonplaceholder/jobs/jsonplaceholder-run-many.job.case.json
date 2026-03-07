@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "jobType": "jsonplaceholder-run-many",
+  "scenario": {
+    "steps": [
+      {
+        "id": "user",
+        "action": "jsonplaceholder.get-user",
+        "payload": {
+          "id": 3
+        }
+      },
+      {
+        "id": "list-posts",
+        "action": "jsonplaceholder.list-user-posts",
+        "payload": {
+          "userId": "${step.user.response.id}"
+        }
+      },
+      {
+        "id": "list-comments",
+        "action": "jsonplaceholder.list-post-comments",
+        "payload": {
+          "postId": "${jsonpath(step:list-posts, $[0].id)}"
+        }
+      }
+    ]
+  }
+}

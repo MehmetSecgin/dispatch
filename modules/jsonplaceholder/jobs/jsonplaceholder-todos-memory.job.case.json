@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "jobType": "jsonplaceholder-todos-memory",
+  "scenario": {
+    "steps": [
+      {
+        "id": "list-open-todos",
+        "action": "jsonplaceholder.list-user-todos",
+        "payload": {
+          "userId": 4,
+          "completed": false
+        }
+      },
+      {
+        "id": "store-user-id",
+        "action": "memory.store",
+        "payload": {
+          "key": "jsonplaceholder.todo-user-id",
+          "value": "${jsonpath(step:list-open-todos, $[0].userId)}"
+        }
+      },
+      {
+        "id": "store-todo-title",
+        "action": "memory.store",
+        "payload": {
+          "key": "jsonplaceholder.todo-title",
+          "value": "${jsonpath(step:list-open-todos, $[0].title)}"
+        }
+      },
+      {
+        "id": "recall-user-id",
+        "action": "memory.recall",
+        "payload": {
+          "key": "jsonplaceholder.todo-user-id"
+        }
+      },
+      {
+        "id": "recall-todo-title",
+        "action": "memory.recall",
+        "payload": {
+          "key": "jsonplaceholder.todo-title"
+        }
+      },
+      {
+        "id": "list-posts",
+        "action": "jsonplaceholder.list-posts",
+        "payload": {
+          "userId": "${step.recall-user-id.response.value}",
+          "limit": 3
+        }
+      },
+      {
+        "id": "forget-memory",
+        "action": "memory.forget",
+        "payload": {
+          "all": true
+        }
+      }
+    ]
+  }
+}

@@ -138,7 +138,7 @@ export class HttpTransport {
       requestFile: opts?.body !== undefined ? reqPath : null,
       responseFile: respPath,
       httpCode: code,
-      curl: curlPreview.join(' '),
+      curl: curlPreview.map(shellQuote).join(' '),
     });
 
     if (code === 0) {
@@ -183,4 +183,9 @@ export class HttpTransport {
       return `${method.toLowerCase()}_${slug || 'root'}`;
     }
   }
+}
+
+function shellQuote(s: string): string {
+  if (/^[a-zA-Z0-9_./:@=-]+$/.test(s)) return s;
+  return `'${s.replace(/'/g, "'\\''")}'`;
 }

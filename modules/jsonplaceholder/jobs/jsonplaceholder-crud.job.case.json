@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "jobType": "jsonplaceholder-crud",
+  "scenario": {
+    "steps": [
+      {
+        "id": "list-source-posts",
+        "action": "jsonplaceholder.list-posts",
+        "payload": {
+          "userId": 1,
+          "limit": 3
+        }
+      },
+      {
+        "id": "create",
+        "action": "jsonplaceholder.create-post",
+        "payload": {
+          "title": "Dispatch follow-up for post ${jsonpath(step:list-source-posts, $[0].id)}",
+          "body": "Original title was: ${jsonpath(step:list-source-posts, $[0].title)}",
+          "userId": "${jsonpath(step:list-source-posts, $[0].userId)}"
+        }
+      }
+    ]
+  }
+}

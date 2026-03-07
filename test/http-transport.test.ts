@@ -171,6 +171,35 @@ describe('HttpTransport', () => {
     });
   });
 
+  describe('curl preview', () => {
+    it('shell-quotes header values with spaces', async () => {
+      const pool = stubPool();
+      const artifacts = stubArtifacts();
+      const http = new HttpTransport(artifacts, { poolRegistry: stubPoolRegistry(pool) });
+      await http.get('https://example.com/x', { headers: { Authorization: 'Bearer my token' } });
+      const curl: string = artifacts.appendCallLog.mock.calls[0][0].curl;
+      expect(curl).toContain("'authorization: Bearer my token'");
+    });
+
+    it('shell-quotes body with special characters', async () => {
+      const pool = stubPool();
+      const artifacts = stubArtifacts();
+      const http = new HttpTransport(artifacts, { poolRegistry: stubPoolRegistry(pool) });
+      await http.post('https://example.com/x', { msg: "it's a test" });
+      const curl: string = artifacts.appendCallLog.mock.calls[0][0].curl;
+      expect(curl).toContain("'\\''");
+    });
+
+    it('does not quote simple tokens', async () => {
+      const pool = stubPool();
+      const artifacts = stubArtifacts();
+      const http = new HttpTransport(artifacts, { poolRegistry: stubPoolRegistry(pool) });
+      await http.get('https://example.com/x');
+      const curl: string = artifacts.appendCallLog.mock.calls[0][0].curl;
+      expect(curl).toMatch(/^curl -sS -X GET https:\/\/example\.com\/x /);
+    });
+  });
+
   describe('response mapping', () => {
     it('maps statusCode and body to status and body', async () => {
       const pool = stubPool(201, '{"id":42}');

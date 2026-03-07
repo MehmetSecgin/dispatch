@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "jobType": "jsonplaceholder-poll",
+  "scenario": {
+    "steps": [
+      {
+        "id": "wait-for-post",
+        "action": "flow.poll",
+        "payload": {
+          "action": "jsonplaceholder.get-post",
+          "payload": {
+            "id": 7
+          },
+          "intervalMs": 500,
+          "maxDurationMs": 5000,
+          "maxAttempts": 3,
+          "conditions": {
+            "mode": "ALL",
+            "rules": [
+              { "path": "$.id", "op": "eq", "value": 7 },
+              { "path": "$.title", "op": "exists" },
+              { "path": "$.title", "op": "regex", "value": ".*magnam.*" }
+            ]
+          },
+          "store": {
+            "postTitle": "$.title",
+            "postId": "$.id"
+          }
+        }
+      },
+      {
+        "id": "use-polled-data",
+        "action": "jsonplaceholder.list-post-comments",
+        "payload": {
+          "postId": "${run.postId}"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "jobType": "jsonplaceholder-lifecycle",
+  "scenario": {
+    "steps": [
+      {
+        "id": "fetch",
+        "action": "jsonplaceholder.get-post",
+        "payload": {
+          "id": 3
+        }
+      },
+      {
+        "id": "replace",
+        "action": "jsonplaceholder.update-post",
+        "payload": {
+          "id": "${step.fetch.response.id}",
+          "title": "Dispatch lifecycle (replaced)",
+          "body": "Fully replaced via PUT to demonstrate fake write handling.",
+          "userId": "${step.fetch.response.userId}"
+        }
+      },
+      {
+        "id": "partial",
+        "action": "jsonplaceholder.patch-post",
+        "payload": {
+          "id": "${step.fetch.response.id}",
+          "title": "Dispatch lifecycle (patched)",
+          "body": "Partially updated via PATCH."
+        }
+      },
+      {
+        "id": "cleanup",
+        "action": "jsonplaceholder.delete-post",
+        "payload": {
+          "id": "${step.fetch.response.id}"
+        }
+      }
+    ]
+  }
+}

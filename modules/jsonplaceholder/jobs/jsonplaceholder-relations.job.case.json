@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "jobType": "jsonplaceholder-relations",
+  "scenario": {
+    "steps": [
+      {
+        "id": "user",
+        "action": "jsonplaceholder.get-user",
+        "payload": {
+          "id": 2
+        }
+      },
+      {
+        "id": "list-albums",
+        "action": "jsonplaceholder.list-user-albums",
+        "payload": {
+          "userId": "${step.user.response.id}"
+        }
+      },
+      {
+        "id": "list-photos",
+        "action": "jsonplaceholder.list-album-photos",
+        "payload": {
+          "albumId": "${jsonpath(step:list-albums, $[0].id)}"
+        }
+      },
+      {
+        "id": "list-posts",
+        "action": "jsonplaceholder.list-user-posts",
+        "payload": {
+          "userId": "${step.user.response.id}"
+        }
+      },
+      {
+        "id": "list-comments",
+        "action": "jsonplaceholder.list-post-comments",
+        "payload": {
+          "postId": "${jsonpath(step:list-posts, $[0].id)}"
+        }
+      }
+    ]
+  }
+}

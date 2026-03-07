@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "jobType": "jsonplaceholder-kitchen-sink",
+  "scenario": {
+    "steps": [
+      {
+        "id": "user",
+        "action": "jsonplaceholder.get-user",
+        "payload": {
+          "id": 1
+        }
+      },
+      {
+        "id": "list-user-posts",
+        "action": "jsonplaceholder.list-user-posts",
+        "payload": {
+          "userId": "${step.user.response.id}"
+        }
+      },
+      {
+        "id": "remember-post",
+        "action": "memory.store",
+        "payload": {
+          "key": "jsonplaceholder.selected-post-id",
+          "value": "${jsonpath(step:list-user-posts, $[0].id)}"
+        }
+      },
+      {
+        "id": "recall-post",
+        "action": "memory.recall",
+        "payload": {
+          "key": "jsonplaceholder.selected-post-id"
+        }
+      },
+      {
+        "id": "pause",
+        "action": "flow.sleep",
+        "payload": {
+          "duration": "250ms"
+        }
+      },
+      {
+        "id": "wait-for-post",
+        "action": "flow.poll",
+        "payload": {
+          "action": "jsonplaceholder.get-post",
+          "payload": {
+            "id": "${step.recall-post.response.value}"
+          },
+          "intervalMs": 500,
+          "maxDurationMs": 5000,
+          "maxAttempts": 3,
+          "conditions": {
+            "mode": "ALL",
+            "rules": [
+              { "path": "$.title", "op": "exists" },
+              { "path": "$.userId", "op": "eq", "value": 1 }
+            ]
+          },
+          "store": {
+            "postId": "$.id",
+            "postTitle": "$.title"
+          }
+        }
+      },
+      {
+        "id": "list-comments",
+        "action": "jsonplaceholder.list-post-comments",
+        "payload": {
+          "postId": "${run.postId}"
+        }
+      },
+      {
+        "id": "create-follow-up",
+        "action": "jsonplaceholder.create-post",
+        "payload": {
+          "title": "Dispatch follow-up: ${run.postTitle}",
+          "body": "First commenter: ${jsonpath(step:list-comments, $[0].email)}",
+          "userId": "${step.user.response.id}"
+        }
+      },
+      {
+        "id": "forget-post",
+        "action": "memory.forget",
+        "payload": {
+          "key": "jsonplaceholder.selected-post-id"
+        }
+      }
+    ]
+  }
+}
