@@ -30,7 +30,7 @@ function setup(targetHandler: (payload: any) => Promise<any> | any) {
   const runtime: any = { configDir: '/tmp/test-dispatch', run: {}, steps: {} };
   const progressLogs: string[] = [];
   const ctx: any = {
-    api: {},
+    http: {},
     artifacts: { appendActivity: () => {} },
     runtime,
     step: { id: 'waitMapped', action: 'flow.poll', payload: {} },

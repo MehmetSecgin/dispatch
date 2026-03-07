@@ -51,7 +51,7 @@ export interface CallLogEntry extends JsonObject {
 }
 
 export function loadCallLog(runDir: string): CallLogEntry[] {
-  const logPath = path.join(runDir, 'curl_calls.jsonl');
+  const logPath = path.join(runDir, 'http_calls.jsonl');
   if (!fs.existsSync(logPath)) return [];
   const lines = fs
     .readFileSync(logPath, 'utf8')

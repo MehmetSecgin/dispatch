@@ -8,3 +8,6 @@ export type {
   ModuleLayer,
   ResolvedAction,
 } from './modules/types.js';
+
+export { HttpTransport } from './transport/http.js';
+export type { HttpResponse, HttpMethod, HttpRequestOptions } from './transport/types.js';

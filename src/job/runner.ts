@@ -4,7 +4,7 @@ import { RunArtifacts } from '../artifacts/run-artifacts.js';
 import type { JsonObject } from '../core/json.js';
 import { loadModuleRegistry } from '../modules/index.js';
 import { buildResolutionRow } from '../modules/conflicts.js';
-import { CurlApiClient } from '../services/curl-api-client.js';
+import { HttpTransport } from '../transport/http.js';
 import { interpolateAny, RuntimeContext } from '../execution/interpolation.js';
 import { JobCase, normalizeSteps } from '../core/schema.js';
 import { defaultRuntime } from '../data/run-data.js';
@@ -57,7 +57,7 @@ export async function executeJobCase(
 ): Promise<JobRunSummary> {
   debug('execute start jobType=%s json=%s verbose=%s label=%s', job.jobType, opts.json, !!opts.verbose, opts.label);
   const artifacts = new RunArtifacts(opts.label);
-  const api = new CurlApiClient(artifacts, {
+  const http = new HttpTransport(artifacts, {
     verboseArtifacts: !!opts.verbose,
     poolRegistry: opts.poolRegistry,
   });
@@ -143,7 +143,7 @@ export async function executeJobCase(
 
     const result = await resolved.definition.handler(
       {
-        api,
+        http,
         artifacts,
         runtime,
         step,

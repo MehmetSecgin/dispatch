@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { RunArtifacts } from '../artifacts/run-artifacts.js';
 import { RuntimeContext } from '../execution/interpolation.js';
 import { JobStep } from '../core/schema.js';
-import { CurlApiClient } from '../services/curl-api-client.js';
+import { HttpTransport } from '../transport/http.js';
 
 export type ModuleLayer = 'builtin' | 'repo' | 'user';
 
@@ -46,7 +46,7 @@ export function defineAction<T>(opts: {
 
 // Renamed from ModuleContext
 export interface ActionContext {
-  api: CurlApiClient;
+  http: HttpTransport;
   artifacts: RunArtifacts;
   runtime: RuntimeContext;
   step: JobStep;

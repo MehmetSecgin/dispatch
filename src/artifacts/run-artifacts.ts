@@ -8,7 +8,6 @@ export class RunArtifacts {
   readonly runId: string;
   readonly runDir: string;
   readonly callsDir: string;
-  readonly cookieJar: string;
   readonly callsLogPath: string;
   readonly activityLogPath: string;
   private callIndex = 0;
@@ -17,8 +16,7 @@ export class RunArtifacts {
     this.runId = `${nowStamp()}-${label}-${runIdUniqToken()}`;
     this.runDir = path.join(RUN_OUTPUT_DIR, this.runId);
     this.callsDir = path.join(this.runDir, 'calls');
-    this.cookieJar = path.join(this.runDir, 'cookies.txt');
-    this.callsLogPath = path.join(this.runDir, 'curl_calls.jsonl');
+    this.callsLogPath = path.join(this.runDir, 'http_calls.jsonl');
     this.activityLogPath = path.join(this.runDir, 'activity.log');
     ensureDir(this.callsDir);
   }
