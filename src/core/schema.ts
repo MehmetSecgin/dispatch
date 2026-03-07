@@ -1,5 +1,28 @@
 import { z } from 'zod';
 
+const ModuleNameSchema = z
+  .string()
+  .min(1)
+  .regex(/^[a-z0-9-]+$/, 'Module names must match /^[a-z0-9-]+$/');
+
+const MemoryNamespaceSchema = z
+  .string()
+  .min(1)
+  .regex(/^[a-z0-9][a-z0-9_-]*$/, 'Memory namespace must match /^[a-z0-9][a-z0-9_-]*$/');
+
+const MemoryKeySchema = z
+  .string()
+  .min(1)
+  .superRefine((value, ctx) => {
+    const segments = value.split('.');
+    if (segments.some((segment) => segment.trim().length === 0)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Memory key segments must be non-empty',
+      });
+    }
+  });
+
 const StepActionSchema = z
   .string()
   .regex(/^[a-z0-9-]+\.[a-z0-9-]+$/, 'Action must be namespaced: <module>.<action>');
@@ -18,9 +41,31 @@ const StepSchema = z
     }
   });
 
+const ModuleDependencySchema = z.object({
+  name: ModuleNameSchema,
+  version: z.string().min(1).optional(),
+});
+
+const MemoryDependencyFillSchema = z.object({
+  module: ModuleNameSchema,
+  job: z.string().min(1),
+});
+
+const MemoryDependencySchema = z.object({
+  namespace: MemoryNamespaceSchema,
+  key: MemoryKeySchema,
+  fill: MemoryDependencyFillSchema.optional(),
+});
+
+const JobDependenciesSchema = z.object({
+  modules: z.array(ModuleDependencySchema).optional(),
+  memory: z.array(MemoryDependencySchema).optional(),
+});
+
 export const JobCaseSchema = z.object({
   schemaVersion: z.number().int().min(1),
   jobType: z.string().min(1),
+  dependencies: JobDependenciesSchema.optional(),
   scenario: z.object({
     steps: z.array(StepSchema).min(1),
   }),
@@ -30,6 +75,12 @@ export const JobCaseSchema = z.object({
 
 export type JobCase = z.infer<typeof JobCaseSchema>;
 export type JobStep = z.infer<typeof StepSchema> & { id: string };
+export type JobDependencies = z.infer<typeof JobDependenciesSchema>;
+export type ModuleDependency = z.infer<typeof ModuleDependencySchema>;
+export type MemoryDependency = z.infer<typeof MemoryDependencySchema>;
+export type MemoryDependencyFill = z.infer<typeof MemoryDependencyFillSchema>;
+export type MemoryNamespace = z.infer<typeof MemoryNamespaceSchema>;
+export type MemoryKey = z.infer<typeof MemoryKeySchema>;
 
 export function normalizeSteps(job: JobCase): JobStep[] {
   return job.scenario.steps.map((s, idx) => ({ ...s, id: s.id ?? `step_${idx + 1}` }));

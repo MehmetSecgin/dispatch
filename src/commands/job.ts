@@ -26,6 +26,8 @@ import {
 } from '../output/renderer.js';
 import {
   buildDumpSummary,
+  defaultRuntime,
+  inferJobFileKind,
   listBundledCases,
   loadCallLog,
   loadCase,
@@ -38,6 +40,7 @@ import { JobCaseSchema } from '../core/schema.js';
 import { loadActionDefaults } from '../execution/action-defaults.js';
 import { HttpPoolRegistry } from '../services/http-pool.js';
 import { inspectBatchSummary, resolveBatchSummaryPath } from '../job/batch-inspect.js';
+import { inspectJobDependencies, resolveJobDependencies, type DependencyIssue } from '../job/dependencies.js';
 import { cliErrorFromCode, exitCodeForCliError, jsonErrorEnvelope } from '../core/errors.js';
 import { nextActionsForJobAssert, nextActionsForJobRun, nextActionsForRunMany } from '../job/next-actions.js';
 
@@ -82,6 +85,14 @@ function stripRunUniqSuffix(label: string): string {
   return label.replace(/-\d{3}[a-f0-9]{4}$/i, '');
 }
 
+function formatDependencyIssue(issue: DependencyIssue): string {
+  if (issue.dependencyType === 'module') return issue.message;
+  const location = issue.namespace && issue.key ? `${issue.namespace}.${issue.key}` : issue.message;
+  return issue.fill
+    ? `${location}: ${issue.message} (fill: ${issue.fill.module}:${issue.fill.job})`
+    : `${location}: ${issue.message}`;
+}
+
 export function registerJobCommands(
   program: Command,
   deps: {
@@ -94,11 +105,69 @@ export function registerJobCommands(
     .command('run')
     .description('Run a job case')
     .requiredOption('--case <path>')
+    .option('--resolve-deps', 'Run fill jobs for missing memory dependencies before the main job', false)
     .action(async (cmd) => {
       const opts = program.opts<CliOpts>();
       const renderer = createRenderer({ json: !!opts.json, color: isColorEnabled(opts) });
       const casePath = resolveCasePath(cmd.case);
       const jc = loadCase(casePath);
+      const { registry, warnings } = await loadModuleRegistry();
+      const validation = validateJobCase(jc, registry, loadActionDefaults(), {
+        jobKind: inferJobFileKind(casePath),
+      });
+      if (!validation.valid) {
+        const details = {
+          casePath,
+          issues: validation.issues,
+          warnings: [...warnings, ...validation.warnings],
+        };
+        renderer.render({
+          json: jsonErrorEnvelope(cliErrorFromCode('USAGE_ERROR', 'job case validation failed', details)),
+          human: [
+            `✗ Invalid ${userPathDisplay(String(cmd.case))}`,
+            ...validation.issues.map((issue) => {
+              const step = issue.stepId ? `[${issue.stepId}] ` : '';
+              const p = issue.path ? `${issue.path}: ` : '';
+              return `- ${step}${p}${issue.message}`;
+            }),
+          ],
+        });
+        process.exitCode = exitCodeForCliError(cliErrorFromCode('USAGE_ERROR', 'job case validation failed'));
+        return;
+      }
+
+      let dependencyCheck = inspectJobDependencies(jc, {
+        registry,
+        configDir: defaultRuntime(deps.cliVersion).configDir,
+      });
+      if (cmd.resolveDeps && !dependencyCheck.valid) {
+        dependencyCheck = await resolveJobDependencies(jc, {
+          registry,
+          configDir: defaultRuntime(deps.cliVersion).configDir,
+          cliVersion: deps.cliVersion,
+        });
+      }
+      if (!dependencyCheck.valid) {
+        const details = {
+          casePath,
+          issues: dependencyCheck.issues,
+          warnings: [...warnings, ...validation.warnings],
+        };
+        renderer.render({
+          json: jsonErrorEnvelope(
+            cliErrorFromCode('USAGE_ERROR', 'job dependency preflight failed', details),
+            dependencyCheck.next,
+          ),
+          human: [
+            `✗ Missing prerequisites for ${userPathDisplay(String(cmd.case))}`,
+            ...dependencyCheck.issues.map((issue) => `- ${formatDependencyIssue(issue)}`),
+            ...formatNextActionsHuman(dependencyCheck.next, { color: isColorEnabled(opts) }),
+          ],
+        });
+        process.exitCode = exitCodeForCliError(cliErrorFromCode('USAGE_ERROR', 'job dependency preflight failed'));
+        return;
+      }
+
       try {
         const summary = await executeJobCase(jc, {
           json: !!opts.json,
@@ -156,7 +225,9 @@ export function registerJobCommands(
       const casePath = resolveCasePath(cmd.case);
       const jc = loadCase(casePath);
       const { registry, warnings } = await loadModuleRegistry();
-      const validation = validateJobCase(jc, registry, loadActionDefaults());
+      const validation = validateJobCase(jc, registry, loadActionDefaults(), {
+        jobKind: inferJobFileKind(casePath),
+      });
       if (!validation.valid) {
         const first = validation.issues[0];
         throw new Error(
@@ -764,9 +835,16 @@ export function registerJobCommands(
         return;
       }
 
-      const result = validateJobCase(parsed.data, registry, loadActionDefaults());
+      const result = validateJobCase(parsed.data, registry, loadActionDefaults(), {
+        jobKind: inferJobFileKind(casePath),
+      });
+      const dependencyCheck = inspectJobDependencies(parsed.data, {
+        registry,
+        configDir: defaultRuntime(deps.cliVersion).configDir,
+      });
+      const valid = result.valid && dependencyCheck.valid;
       if (!!opts.json) {
-        if (result.valid) {
+        if (valid) {
           renderer.jsonOut({ valid: true, casePath, warnings: [...warnings, ...result.warnings] });
         } else {
           renderer.jsonOut(
@@ -774,12 +852,14 @@ export function registerJobCommands(
               cliErrorFromCode('USAGE_ERROR', 'job case validation failed', {
                 casePath,
                 issues: result.issues,
+                dependencyIssues: dependencyCheck.issues,
                 warnings: [...warnings, ...result.warnings],
               }),
+              dependencyCheck.next,
             ),
           );
         }
-      } else if (result.valid) {
+      } else if (valid) {
         renderer.render({
           json: null,
           human: [
@@ -797,10 +877,12 @@ export function registerJobCommands(
               const p = issue.path ? `${issue.path}: ` : '';
               return `- ${step}${p}${issue.message}`;
             }),
+            ...dependencyCheck.issues.map((issue) => `- ${formatDependencyIssue(issue)}`),
+            ...formatNextActionsHuman(dependencyCheck.next, { color: isColorEnabled(opts) }),
           ],
         });
       }
-      if (!result.valid) {
+      if (!valid) {
         process.exitCode = exitCodeForCliError(cliErrorFromCode('USAGE_ERROR', 'job case validation failed'));
       }
     });

@@ -3,7 +3,7 @@ import { JobCaseSchema } from '../src/core/schema.ts';
 import { validateJobCase } from '../src/job/validator.ts';
 import { loadModuleRegistry } from '../src/modules/index.ts';
 
-function parseJob(input: any) {
+function parseJob(input: unknown) {
   return JobCaseSchema.parse(input);
 }
 
@@ -100,5 +100,32 @@ describe('validateJobCase (flow-only)', () => {
     const result = validateJobCase(job, registry);
     expect(result.valid).toBe(false);
     expect(result.issues.some(i => i.code === 'MODULE_VALIDATION_ERROR')).toBe(true);
+  });
+
+  it('rejects memory.store in case jobs', () => {
+    const job = parseJob({
+      schemaVersion: 1,
+      jobType: 'bad-case-memory-store',
+      scenario: {
+        steps: [{ id: 's1', action: 'memory.store', payload: { namespace: 'demo', key: 'x', value: 1 } }],
+      },
+    });
+
+    const result = validateJobCase(job, undefined, {}, { jobKind: 'case' });
+    expect(result.valid).toBe(false);
+    expect(result.issues.some(i => i.code === 'DISALLOWED_MEMORY_MUTATION')).toBe(true);
+  });
+
+  it('allows memory.store in seed jobs', () => {
+    const job = parseJob({
+      schemaVersion: 1,
+      jobType: 'good-seed-memory-store',
+      scenario: {
+        steps: [{ id: 's1', action: 'memory.store', payload: { namespace: 'demo', key: 'x', value: 1 } }],
+      },
+    });
+
+    const result = validateJobCase(job, undefined, {}, { jobKind: 'seed' });
+    expect(result.valid).toBe(true);
   });
 });

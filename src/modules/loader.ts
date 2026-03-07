@@ -7,6 +7,7 @@ import { ROOT_DIR } from '../data/paths.js';
 import { readJson } from '../utils/fs-json.js';
 import { ModuleManifest, ModuleManifestSchema } from './manifest.js';
 import { loadBuiltinModules } from './builtin/index.js';
+import { discoverModuleJobs } from './jobs.js';
 import { ModuleAction, ModuleDefinition, ModuleLoadResult, ModuleLayer } from './types.js';
 
 function isZodSchema(value: unknown): value is z.ZodSchema {
@@ -21,7 +22,7 @@ function listModuleDirs(baseDir: string): string[] {
     .filter((p) => fs.existsSync(path.join(p, 'module.json')) && fs.statSync(p).isDirectory());
 }
 
-async function loadExternalModule(dir: string, layer: ModuleLayer): Promise<ModuleDefinition> {
+export async function loadModuleFromDir(dir: string, layer: ModuleLayer): Promise<ModuleDefinition> {
   const rawManifest = readJson(path.join(dir, 'module.json'));
   const manifest: ModuleManifest = ModuleManifestSchema.parse(rawManifest);
   const entryPath = path.resolve(dir, manifest.entry ?? 'index.mjs');
@@ -59,6 +60,7 @@ async function loadExternalModule(dir: string, layer: ModuleLayer): Promise<Modu
     sourcePath: dir,
     metadata: manifest.metadata as Record<string, unknown> | undefined,
     actions,
+    jobs: discoverModuleJobs(dir),
   };
 }
 
@@ -71,7 +73,7 @@ export async function loadModules(): Promise<ModuleLoadResult> {
   const repoModulesDir = path.join(ROOT_DIR, 'modules');
   for (const dir of listModuleDirs(repoModulesDir)) {
     try {
-      modules.push(await loadExternalModule(dir, 'repo'));
+      modules.push(await loadModuleFromDir(dir, 'repo'));
     } catch (e) {
       warnings.push(`Failed loading repo module '${dir}': ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -80,7 +82,7 @@ export async function loadModules(): Promise<ModuleLoadResult> {
   const userModulesDir = path.join(os.homedir(), '.dispatch', 'modules');
   for (const dir of listModuleDirs(userModulesDir)) {
     try {
-      modules.push(await loadExternalModule(dir, 'user'));
+      modules.push(await loadModuleFromDir(dir, 'user'));
     } catch (e) {
       warnings.push(`Failed loading user module '${dir}': ${e instanceof Error ? e.message : String(e)}`);
     }

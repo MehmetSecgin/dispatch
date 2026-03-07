@@ -5,7 +5,9 @@ import { pathToFileURL } from 'node:url';
 import { Command } from 'commander';
 import { ROOT_DIR } from '../data/paths.js';
 import { loadModuleRegistry, moduleInfo, hashDirectory } from '../modules/index.js';
+import { loadModuleFromDir, loadModules } from '../modules/loader.js';
 import { ModuleManifestSchema } from '../modules/manifest.js';
+import { ModuleRegistry } from '../modules/registry.js';
 import { readJson, requireFile } from '../utils/fs-json.js';
 import type { GroupedTableGroup } from '../output/renderer.js';
 import {
@@ -15,8 +17,11 @@ import {
   shortenHomePath,
   uiSymbol,
 } from '../output/renderer.js';
-import { defaultUserModulesDir } from '../data/run-data.js';
+import { defaultUserModulesDir, inferJobFileKind } from '../data/run-data.js';
 import { cliErrorFromCode, exitCodeForCliError, jsonErrorEnvelope } from '../core/errors.js';
+import { JobCaseSchema } from '../core/schema.js';
+import { validateJobCase } from '../job/validator.js';
+import { loadActionDefaults } from '../execution/action-defaults.js';
 
 function findZipBinary(): string {
   return process.platform === 'win32' ? 'powershell' : 'zip';
@@ -115,7 +120,9 @@ export function registerModuleCommands(program: Command): void {
           `Module:   ${outWithHash.name}@${outWithHash.version} (${outWithHash.layer})`,
           `Source:   ${shortenHomePath(outWithHash.sourcePath)}`,
           `Actions:  ${outWithHash.actionCount}`,
+          `Jobs:     ${outWithHash.jobs.length}`,
           ...outWithHash.actions.map((a) => `  - ${a.key}${a.description ? ` - ${a.description}` : ''}`),
+          ...outWithHash.jobs.map((job) => `  - [${job.kind}] ${job.id} -> ${shortenHomePath(job.path)}`),
           ...(opts.verbose && hash ? [`Integrity:  ${hash}`] : []),
         ],
       });
@@ -148,6 +155,14 @@ export function registerModuleCommands(program: Command): void {
       const entryPath = path.resolve(moduleDir, parsed.data.entry || 'index.mjs');
       if (!fs.existsSync(entryPath)) throw new Error(`Missing entry file: ${entryPath}`);
       const imported = await import(pathToFileURL(entryPath).href);
+      const moduleDef = await loadModuleFromDir(moduleDir, 'repo');
+      const loaded = await loadModules();
+      const registry = new ModuleRegistry();
+      for (const mod of loaded.modules) {
+        if (path.resolve(mod.sourcePath) === moduleDir) continue;
+        registry.register(mod);
+      }
+      registry.register(moduleDef);
       const actionEntries = Object.entries(parsed.data.actions);
       const missing = actionEntries
         .filter(([, a]) => typeof imported[a.handler] !== 'function')
@@ -155,13 +170,36 @@ export function registerModuleCommands(program: Command): void {
       const emptyDescriptions = actionEntries
         .filter(([, a]) => !a.description || !String(a.description).trim())
         .map(([name]) => name);
+      const discoveredJobs = moduleDef.jobs ?? [];
+      const jobIssues = discoveredJobs.flatMap((job) => {
+        const parsedJob = JobCaseSchema.safeParse(readJson(job.path));
+        if (!parsedJob.success) {
+          return parsedJob.error.issues.map((issue) => ({
+            jobId: job.id,
+            kind: job.kind,
+            path: `${job.id}:${issue.path.join('.') || '<root>'}`,
+            message: issue.message,
+          }));
+        }
+        const validated = validateJobCase(parsedJob.data, registry, loadActionDefaults(), {
+          jobKind: inferJobFileKind(job.path),
+        });
+        return validated.issues.map((issue) => ({
+          jobId: job.id,
+          kind: job.kind,
+          path: `${job.id}:${issue.path || '<root>'}`,
+          message: issue.message,
+        }));
+      });
       const out = {
-        valid: missing.length === 0 && emptyDescriptions.length === 0,
+        valid: missing.length === 0 && emptyDescriptions.length === 0 && jobIssues.length === 0,
         module: parsed.data.name,
         version: parsed.data.version,
         hash: hashDirectory(moduleDir),
         missingHandlers: missing,
         emptyDescriptions,
+        jobs: discoveredJobs,
+        jobIssues,
       };
       renderer.render({
         json: out.valid ? out : jsonErrorEnvelope(cliErrorFromCode('USAGE_ERROR', 'module validation failed', out)),
@@ -170,6 +208,8 @@ export function registerModuleCommands(program: Command): void {
           ...(opts.verbose ? [`  Integrity: ${out.hash}`] : []),
           ...(out.missingHandlers.length > 0 ? [`  Missing handlers: ${out.missingHandlers.join(', ')}`] : []),
           ...(out.emptyDescriptions.length > 0 ? [`  Empty descriptions: ${out.emptyDescriptions.join(', ')}`] : []),
+          ...(out.jobs.length > 0 ? [`  Jobs: ${out.jobs.map((job) => `[${job.kind}] ${job.id}`).join(', ')}`] : []),
+          ...(out.jobIssues.length > 0 ? out.jobIssues.map((issue) => `  Job issue: ${issue.path}: ${issue.message}`) : []),
         ],
       });
       if (!out.valid)

@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "jobType": "jsonplaceholder-cache-user-1",
+  "scenario": {
+    "steps": [
+      {
+        "id": "user",
+        "action": "jsonplaceholder.get-user",
+        "payload": {
+          "id": 1
+        }
+      },
+      {
+        "id": "store-user",
+        "action": "memory.store",
+        "payload": {
+          "namespace": "jsonplaceholder-reference",
+          "key": "users.user-1",
+          "value": {
+            "payload": "${jsonpath(step:user, $)}",
+            "meta": {
+              "cachedAt": "${run.startedAt}",
+              "source": "jsonplaceholder.get-user",
+              "sourceKey": "1"
+            }
+          }
+        }
+      }
+    ]
+  }
+}

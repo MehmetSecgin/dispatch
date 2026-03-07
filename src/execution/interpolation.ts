@@ -2,6 +2,7 @@ import { JSONPath } from 'jsonpath-plus';
 import { isJsonObject, type JsonObject, type JsonValue } from '../core/json.js';
 
 type RuntimeStepState = { response?: JsonValue | unknown };
+const FULL_EXPR_RE = /^\$\{([^}]+)\}$/;
 
 export interface RuntimeContext {
   configDir: string;
@@ -26,42 +27,45 @@ function deepGetByPath(obj: unknown, dotPath: string): unknown {
   return cur;
 }
 
+function evaluateExpression(exprRaw: string, ctx: RuntimeContext): unknown {
+  const expr = String(exprRaw).trim();
+  if (expr.startsWith('run.')) {
+    const value = deepGetByPath(ctx.run, expr.slice(4));
+    return value == null ? '' : value;
+  }
+  if (expr.startsWith('step.')) {
+    const match = expr.match(/^step\.([^.]+)\.response\.(.+)$/);
+    if (!match) return '';
+    const stepId = match[1];
+    const dotPath = match[2];
+    const step = ctx.steps[stepId];
+    if (!step || step.response == null) return '';
+    const value = deepGetByPath(step.response, dotPath);
+    return value == null ? '' : value;
+  }
+  if (expr.startsWith('jsonpath(') && expr.endsWith(')')) {
+    const body = expr.slice('jsonpath('.length, -1);
+    const [scope, jp] = body.split(',', 2).map((part) => part.trim());
+    let target: unknown = null;
+    if (scope === 'run') target = ctx.run;
+    else if (scope.startsWith('step:')) target = ctx.steps[scope.slice('step:'.length)]?.response;
+    if (target == null) return '';
+    const found = JSONPath({ path: jp, json: target, wrap: false });
+    return found == null ? '' : found;
+  }
+  return '';
+}
+
 function interpolateString(s: string, ctx: RuntimeContext): string {
-  return s.replace(/\$\{([^}]+)\}/g, (_m, exprRaw: string) => {
-    const expr = String(exprRaw).trim();
-    if (expr.startsWith('run.')) {
-      const v = deepGetByPath(ctx.run, expr.slice(4));
-      return v == null ? '' : String(v);
-    }
-    if (expr.startsWith('step.')) {
-      const m = expr.match(/^step\.([^.]+)\.response\.(.+)$/);
-      if (!m) return '';
-      const stepId = m[1];
-      const p = m[2];
-      const step = ctx.steps[stepId];
-      if (!step || step.response == null) return '';
-      const v = deepGetByPath(step.response, p);
-      return v == null ? '' : String(v);
-    }
-    if (expr.startsWith('jsonpath(') && expr.endsWith(')')) {
-      const body = expr.slice('jsonpath('.length, -1);
-      const [scope, jp] = body.split(',', 2).map((x) => x.trim());
-      let target: unknown = null;
-      if (scope === 'run') target = ctx.run;
-      else if (scope.startsWith('step:')) {
-        const id = scope.slice('step:'.length);
-        target = ctx.steps[id]?.response;
-      }
-      if (target == null) return '';
-      const found = JSONPath({ path: jp, json: target, wrap: false });
-      return found == null ? '' : String(found);
-    }
-    return '';
-  });
+  return s.replace(/\$\{([^}]+)\}/g, (_match, exprRaw: string) => String(evaluateExpression(exprRaw, ctx)));
 }
 
 export function interpolateAny<T>(value: T, ctx: RuntimeContext): T {
-  if (typeof value === 'string') return interpolateString(value, ctx) as T;
+  if (typeof value === 'string') {
+    const fullExpr = value.match(FULL_EXPR_RE);
+    if (fullExpr) return evaluateExpression(fullExpr[1], ctx) as T;
+    return interpolateString(value, ctx) as T;
+  }
   if (Array.isArray(value)) return value.map((v) => interpolateAny(v, ctx)) as T;
   if (isJsonObject(value)) {
     const out: Record<string, unknown> = {};

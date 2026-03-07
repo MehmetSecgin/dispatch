@@ -1,7 +1,9 @@
 import path from 'node:path';
+import fs from 'node:fs';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 const THIS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(THIS_DIR, '..');
@@ -19,6 +21,14 @@ function runCli(args: string[]) {
     json: stdout ? JSON.parse(stdout) : null,
   };
 }
+
+afterEach(() => {
+  for (const entry of fs.readdirSync(os.tmpdir())) {
+    if (entry.startsWith('dispatch-module-validate-test-')) {
+      fs.rmSync(path.join(os.tmpdir(), entry), { recursive: true, force: true });
+    }
+  }
+});
 
 describe('module CLI', () => {
   it('omits the duplicate top-level actions array from module list JSON', () => {
@@ -40,5 +50,85 @@ describe('module CLI', () => {
     expect(result.status).toBe(0);
     expect(result.json?.name).toBe('flow');
     expect(result.json?.actionCount).toBeGreaterThan(0);
+  });
+
+  it('includes discovered module jobs in inspect output', () => {
+    const result = runCli(['module', 'inspect', 'jsonplaceholder']);
+
+    expect(result.status).toBe(0);
+    expect(result.json?.jobs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'cache-user-1',
+          kind: 'seed',
+        }),
+      ]),
+    );
+  });
+
+  it('fails module validate when a case job mutates memory', () => {
+    const moduleDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-module-validate-test-'));
+    fs.mkdirSync(path.join(moduleDir, 'jobs'), { recursive: true });
+    fs.writeFileSync(
+      path.join(moduleDir, 'module.json'),
+      `${JSON.stringify(
+        {
+          name: 'memory-mutation-fixture',
+          version: '1.0.0',
+          entry: 'index.mjs',
+          actions: {
+            noop: {
+              handler: 'noop',
+              description: 'No-op fixture action.',
+            },
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(moduleDir, 'index.mjs'),
+      "export async function noop() { return { response: { ok: true }, detail: 'ok' }; }\n",
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(moduleDir, 'jobs', 'bad-memory.job.case.json'),
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          jobType: 'bad-memory-case',
+          scenario: {
+            steps: [
+              {
+                id: 'store',
+                action: 'memory.store',
+                payload: {
+                  namespace: 'fixture',
+                  key: 'x',
+                  value: 1,
+                },
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+
+    const result = runCli(['module', 'validate', '--path', moduleDir]);
+
+    expect(result.status).toBe(2);
+    expect(result.json?.details?.jobIssues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: expect.stringContaining('bad-memory'),
+          message: expect.stringContaining('only allowed in seed jobs'),
+        }),
+      ]),
+    );
   });
 });
