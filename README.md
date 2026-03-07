@@ -273,6 +273,8 @@ dispatch runtime unset [--all]
 dispatch defaults show [--action <module.action>]
 dispatch defaults set --action <module.action> --file <path>
 dispatch defaults unset --action <module.action>
+dispatch memory list
+dispatch memory inspect --namespace <name>
 ```
 
 ### Utilities

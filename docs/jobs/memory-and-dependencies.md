@@ -74,6 +74,20 @@ Seed jobs are the explicit place to populate or clear durable memory.
 
 This keeps normal workflow jobs shareable and side-effect-light while making durable cache/bootstrap behavior explicit.
 
+## Inspecting memory
+
+Dispatch exposes a small read-only inspection surface:
+
+```bash
+dispatch memory list
+dispatch memory inspect --namespace <name>
+```
+
+- `memory list` shows the discovered namespace files under `~/.dispatch/memory/`
+- `memory inspect` prints the full JSON contents of one namespace
+
+These commands are intentionally read-only. Durable memory mutation still happens through seed jobs, not ad hoc CLI writes.
+
 ## Dependencies
 
 Jobs can declare prerequisites at the top level:

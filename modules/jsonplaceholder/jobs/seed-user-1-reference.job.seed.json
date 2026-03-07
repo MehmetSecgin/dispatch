@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "jobType": "jsonplaceholder-cache-user-1",
+  "jobType": "jsonplaceholder-seed-user-1-reference",
   "scenario": {
     "steps": [
       {

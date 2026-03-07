@@ -39,6 +39,15 @@ export interface DependencyCheckResult {
   next: NextAction[];
 }
 
+export interface DeclaredMemoryDependencySummary {
+  namespace: string;
+  key: string;
+  fill?: {
+    module: string;
+    job: string;
+  };
+}
+
 interface FillResolution {
   module: ModuleDefinition;
   path: string;
@@ -98,7 +107,7 @@ function jobCommandPath(filePath: string): string {
 function nextActionForMemoryFill(dep: MemoryDependency, fillPath: string): NextAction {
   return {
     command: `dispatch job run --case ${jobCommandPath(fillPath)}`,
-    description: `populate memory ${dep.namespace}.${dep.key}`,
+    description: `run seed job to populate ${dep.namespace}.${dep.key}`,
   };
 }
 
@@ -177,7 +186,7 @@ export function inspectJobDependencies(
           module: dep.fill.module,
           job: dep.fill.job,
         },
-        message: `Missing fill job '${dep.fill.module}:${dep.fill.job}' for memory dependency ${dep.namespace}.${dep.key}`,
+        message: `Missing seed job '${dep.fill.module}:${dep.fill.job}' for required memory ${dep.namespace}.${dep.key}`,
       });
       continue;
     }
@@ -194,7 +203,9 @@ export function inspectJobDependencies(
             path: resolvedFill?.path,
           }
         : undefined,
-      message: `Missing memory dependency ${dep.namespace}.${dep.key}`,
+      message: dep.fill
+        ? `Missing required memory ${dep.namespace}.${dep.key}; seed with ${dep.fill.module}:${dep.fill.job}`
+        : `Missing required memory ${dep.namespace}.${dep.key}`,
     });
 
     if (resolvedFill) next.push(nextActionForMemoryFill(dep, resolvedFill.path));
@@ -249,4 +260,17 @@ export async function resolveJobDependencies(
   }
 
   return inspectJobDependencies(job, opts);
+}
+
+export function summarizeDeclaredMemoryDependencies(job: JobCase): DeclaredMemoryDependencySummary[] {
+  return (job.dependencies?.memory ?? []).map((dep) => ({
+    namespace: dep.namespace,
+    key: dep.key,
+    fill: dep.fill
+      ? {
+          module: dep.fill.module,
+          job: dep.fill.job,
+        }
+      : undefined,
+  }));
 }
