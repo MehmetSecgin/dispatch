@@ -177,7 +177,7 @@ dispatch job batch-inspect --batch-id <id|latest>
 ### Modules
 ```bash
 dispatch module list
-dispatch module inspect --name <module>
+dispatch module inspect <name>
 dispatch module validate --path <dir>
 dispatch module init --name <name> --out <dir>
 dispatch module pack --path <dir> --out <bundle.dpmod.zip>

@@ -5,6 +5,11 @@ interface CompletionTree {
   subcommands: Record<string, string[]>;
 }
 
+interface CommandManifestEntry {
+  cmd: string;
+  desc: string;
+}
+
 function qList(values: readonly string[]): string {
   return values.join(' ');
 }
@@ -33,12 +38,54 @@ export function buildCompletionTree(program: Command): CompletionTree {
   };
 }
 
+export function collectCommands(
+  program: Command,
+  opts?: { exclude?: Set<string> },
+): CommandManifestEntry[] {
+  const exclude = opts?.exclude ?? new Set<string>();
+  return collectFrom(program.commands, [], exclude);
+}
+
 export function renderCompletion(shell: string, tree: CompletionTree): string {
   const normalized = shell.trim().toLowerCase();
   if (normalized === 'bash') return renderBash(tree);
   if (normalized === 'zsh') return renderZsh(tree);
   if (normalized === 'fish') return renderFish(tree);
   throw new Error(`Unsupported shell '${shell}'. Use bash, zsh, or fish.`);
+}
+
+function collectFrom(
+  commands: readonly Command[],
+  parents: string[],
+  exclude: ReadonlySet<string>,
+): CommandManifestEntry[] {
+  const out: CommandManifestEntry[] = [];
+
+  for (const cmd of commands) {
+    const name = cmd.name();
+    if (!name || exclude.has(name)) continue;
+
+    const pathParts = [...parents, name];
+    const childEntries = collectFrom(cmd.commands, pathParts, exclude);
+    const requiredArgs = cmd.registeredArguments
+      .filter((argument) => argument.required)
+      .map((argument) => `<${argument.name()}${argument.variadic ? '...' : ''}>`);
+    const requiredFlags = cmd.options
+      .filter((option) => option.mandatory)
+      .map((option) => option.flags);
+    const hasAction = Boolean((cmd as Command & { _actionHandler?: unknown })._actionHandler);
+
+    if (hasAction || childEntries.length === 0) {
+      out.push({
+        cmd: [...pathParts, ...requiredArgs, ...requiredFlags].join(' '),
+        desc: cmd.description(),
+      });
+    }
+
+    out.push(...childEntries);
+  }
+
+  return out;
 }
 
 function renderBash(tree: CompletionTree): string {

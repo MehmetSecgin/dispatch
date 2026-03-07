@@ -6,6 +6,7 @@ import { registerModuleCommands } from './commands/module.js';
 import { registerDoctorCommand } from './commands/doctor.js';
 import {
 	buildCompletionTree,
+	collectCommands,
 	renderCompletion
 } from './commands/completion.js';
 import {
@@ -46,6 +47,7 @@ async function main(): Promise<void> {
 		.name('dispatch')
 		.description('Deterministic dispatch CLI with flow-first orchestration')
 		.version(CLI_VERSION)
+		.option('--llms', 'Print compact command manifest for agent discovery', false)
 		.option('--json', 'Output machine JSON only', false)
 		.option('--verbose', 'Show extended human output', false)
 		.option('--no-color', 'Disable colorized human output');
@@ -223,7 +225,7 @@ async function main(): Promise<void> {
 	schema
 		.command('case')
 		.description('Print case schema example')
-		.option('--print', 'Print schema object', false)
+		.requiredOption('--print', 'Print schema object')
 		.action((cmd) => {
 			if (!cmd.print) throw new Error('Use --print to output schema');
 			createRenderer({ json: true }).jsonOut({
@@ -241,7 +243,7 @@ async function main(): Promise<void> {
 		.command('action')
 		.description('Print minimal schema for an action')
 		.requiredOption('--name <module.action>')
-		.option('--print', 'Print schema object', false)
+		.requiredOption('--print', 'Print schema object')
 		.action(async (cmd) => {
 			if (!cmd.print) throw new Error('Use --print to output schema');
 			const { registry } = await loadModuleRegistry();
@@ -253,6 +255,29 @@ async function main(): Promise<void> {
 				description: resolved.definition.description ?? null
 			});
 		});
+
+	if (process.argv.includes('--llms')) {
+		const exclude = new Set(['version', 'skill-version', 'completion', 'self-check', 'help']);
+		const commands = collectCommands(program, { exclude });
+		const { registry } = await loadModuleRegistry();
+		const actions = registry
+			.listModules()
+			.flatMap((module) =>
+				Object.entries(module.actions).map(([actionName, action]) => ({
+					key: `${module.name}.${actionName}`,
+					desc: action.description ?? null
+				}))
+			)
+			.sort((a, b) => a.key.localeCompare(b.key));
+		const manifest = {
+			version: CLI_VERSION,
+			hint: 'Every command returns a next[] array suggesting follow-up commands.',
+			commands,
+			actions
+		};
+		process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);
+		return;
+	}
 
 	await program.parseAsync(process.argv);
 }

@@ -95,13 +95,12 @@ export function registerModuleCommands(program: Command): void {
   moduleCmd
     .command('inspect')
     .description('Inspect one module')
-    .argument('[module]')
-    .option('--name <module>')
-    .action(async (moduleName, cmd) => {
+    .argument('<name>')
+    .action(async (moduleName) => {
       const opts = program.opts();
       const renderer = createRenderer({ json: !!opts.json });
       const { registry } = await loadModuleRegistry();
-      const requestedName = String(cmd.name ?? moduleName ?? '').trim();
+      const requestedName = String(moduleName ?? '').trim();
       if (!requestedName) throw new Error('Module name required');
       const mod = registry.listModules().find((m) => m.name === requestedName);
       if (!mod) throw new Error(`Module not found: ${requestedName}`);

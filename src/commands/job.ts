@@ -340,7 +340,7 @@ export function registerJobCommands(
   job
     .command('batch-inspect')
     .description('Analyze run-many batch summary and timing bottlenecks')
-    .option('--batch-id <id>', 'Batch id, "latest", or summary file path', 'latest')
+    .requiredOption('--batch-id <id>', 'Batch id, "latest", or summary file path', 'latest')
     .option('--top <n>', 'Top rows to show for actions/slow runs', '5')
     .action((cmd) => {
       const opts = program.opts<CliOpts>();
@@ -458,7 +458,7 @@ export function registerJobCommands(
   job
     .command('inspect')
     .description('Inspect run failure diagnostics')
-    .option('--run-id <id>', 'Run id or "latest"', 'latest')
+    .requiredOption('--run-id <id>', 'Run id or "latest"', 'latest')
     .option('--step <n>', 'Prefer diagnostics for a specific 1-based step index')
     .option('--show-curl', 'Include curl replay command', false)
     .action(async (cmd) => {
@@ -566,7 +566,7 @@ export function registerJobCommands(
   job
     .command('dump')
     .description('Dump full run payload as JSON')
-    .option('--run-id <id>', 'Run id or "latest"', 'latest')
+    .requiredOption('--run-id <id>', 'Run id or "latest"', 'latest')
     .option('--out <path>', 'Write JSON output to file')
     .action(async (cmd) => {
       const opts = program.opts<CliOpts>();
@@ -627,7 +627,7 @@ export function registerJobCommands(
   job
     .command('readable')
     .description('Export readable text with all curl calls, requests and responses')
-    .option('--run-id <id>', 'Run id or "latest"', 'latest')
+    .requiredOption('--run-id <id>', 'Run id or "latest"', 'latest')
     .option('--out <path>', 'Write txt output to file (default: <runDir>/readable-requests-responses.txt)')
     .action((cmd) => {
       const opts = program.opts();
@@ -657,7 +657,7 @@ export function registerJobCommands(
   job
     .command('assert')
     .description('Run deterministic assertions against a finished run artifact')
-    .option('--run-id <id>', 'Run id or "latest"', 'latest')
+    .requiredOption('--run-id <id>', 'Run id or "latest"', 'latest')
     .option('--check <name>', 'Assertion check name (repeatable)', (v, prev: string[] = []) => [...prev, String(v)], [])
     .option(
       '--param <key=value>',
