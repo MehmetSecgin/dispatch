@@ -38,13 +38,13 @@ developer (natural language)
 | `flow.sleep` | Pause execution for a deterministic duration |
 | `flow.poll` | Call another action repeatedly until conditions match or timeout |
 
-### `memory` — persistent state between sessions
+### `memory` — namespaced persistent state between sessions
 
 | Action | Description |
 |---|---|
-| `memory.store` | Store a value by key |
-| `memory.recall` | Recall a value by key |
-| `memory.forget` | Forget one key or clear all memory |
+| `memory.store` | Store a value by key in a namespace |
+| `memory.recall` | Recall a value by key from a namespace |
+| `memory.forget` | Forget one key or clear one namespace |
 
 ---
 
@@ -82,10 +82,26 @@ A job case is a portable JSON file — shareable, versionable, replayable.
         "payload": { "duration": "1s" }
       },
       {
-        "id": "store-result",
-        "action": "memory.store",
-        "payload": { "key": "last-run", "value": "$.pause.response" }
-      }
+        "id": "wait-for-ready",
+        "action": "flow.poll",
+        "payload": {
+          "action": "probe.get-status",
+          "payload": {
+            "id": "${run.targetId}"
+          },
+          "intervalMs": 1000,
+          "maxDurationMs": 10000,
+          "conditions": {
+            "mode": "ALL",
+            "rules": [
+              { "path": "$.ready", "op": "eq", "value": true }
+            ]
+          },
+          "store": {
+            "resourceId": "$.id"
+          }
+        }
+      },
     ]
   }
 }
@@ -93,7 +109,71 @@ A job case is a portable JSON file — shareable, versionable, replayable.
 
 - Actions are always namespaced: `module.action`
 - Payloads use intent fields, not raw wire payloads
-- Interpolation: `$.stepId.response.field` references previous step responses
+- Interpolation uses `${step.<id>.response.<field>}` or `${jsonpath(step:<id>, <path>)}`
+- Same-run values should flow through `step.*` or `run.*`, not persistent memory
+
+### Memory and job kinds
+
+Dispatch distinguishes between portable case jobs and memory-mutating seed jobs:
+
+- `*.job.case.json`
+  - may use `memory.recall`
+  - may not use `memory.store`
+  - may not use `memory.forget`
+- `*.job.seed.json`
+  - may use all memory actions
+
+Memory is for durable cross-run state, not same-run wiring. Persistent values live at:
+
+```text
+~/.dispatch/memory/<namespace>.json
+```
+
+Keys are dotted paths inside the namespace file, for example:
+
+```json
+{
+  "namespace": "sportsbook-reference",
+  "key": "markets.1x2-fulltime",
+  "value": {
+    "payload": { "...": "..." },
+    "meta": {
+      "cachedAt": "2026-03-07T18:00:00Z",
+      "source": "sportsbook.get-market",
+      "sourceKey": "1x2-fulltime"
+    }
+  }
+}
+```
+
+### Job dependencies
+
+Jobs can declare explicit prerequisites:
+
+```json
+{
+  "dependencies": {
+    "modules": [
+      { "name": "sportsbook", "version": "^0.4.0" }
+    ],
+    "memory": [
+      {
+        "namespace": "sportsbook-reference",
+        "key": "markets.1x2-fulltime",
+        "fill": {
+          "module": "sportsbook",
+          "job": "seed-market-1x2-fulltime"
+        }
+      }
+    ]
+  }
+}
+```
+
+- Module dependencies are validated before execution
+- Missing memory dependencies fail early with actionable `next[]`
+- `dispatch job run --resolve-deps` can run fill jobs before the main job
+- Fill jobs resolve by logical module job id, preferring `<job>.job.seed.json` over `<job>.job.case.json`
 
 ---
 
@@ -159,7 +239,7 @@ Written on both success and failure. Assert offline. Replay without network.
 ### Jobs
 ```bash
 dispatch job validate --case <path>
-dispatch job run --case <path>
+dispatch job run --case <path> [--resolve-deps]
 dispatch job run-many --case <path> --count <n> --concurrency <n>
 dispatch job assert --run-id <id|latest>
 dispatch job inspect --run-id <id|latest> [--step <n>]
@@ -257,6 +337,21 @@ export async function registerWebhook(ctx, payload) {
 }
 ```
 
+Modules can also ship job files under `jobs/`:
+
+```text
+payments/
+  module.json
+  index.mjs
+  jobs/
+    sync-catalog.job.case.json
+    cache-reference-data.job.seed.json
+```
+
+- `dispatch module inspect <name> --json` lists discovered shipped jobs
+- `dispatch module validate --path <dir>` validates both handlers and shipped job files
+- Use seed jobs for cache/bootstrap flows that populate memory for later case jobs
+
 ### Pack and install
 
 ```bash
@@ -273,7 +368,8 @@ dispatch module install --bundle payments.dpmod.zip
   runtime-overrides.json    — global runtime overrides
   action-defaults.json      — per-action default payloads
   modules/                  — user-installed module bundles
-  memory.json               — memory module persistent store
+  memory/                   — namespaced memory files
+    <namespace>.json
 ```
 
 ---
