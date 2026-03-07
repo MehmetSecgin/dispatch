@@ -6,6 +6,7 @@ import { isJsonPathSyntaxValid } from '../execution/conditions.js';
 import type { ConditionGroup, ConditionRule } from '../execution/conditions.js';
 import { FlowPollPayloadSchema } from '../modules/builtin/flow/schemas.js';
 import { ActionDefaultsMap, applyActionDefaults } from '../execution/action-defaults.js';
+import type { JobFileKind } from '../data/run-data.js';
 
 export interface ValidationIssue {
   code:
@@ -19,7 +20,8 @@ export interface ValidationIssue {
     | 'INVALID_ACTION_FORMAT'
     | 'UNKNOWN_ACTION'
     | 'MODULE_VALIDATION_ERROR'
-    | 'FLOW_POLL_VALIDATION_ERROR';
+    | 'FLOW_POLL_VALIDATION_ERROR'
+    | 'DISALLOWED_MEMORY_MUTATION';
   message: string;
   stepId?: string;
   path?: string;
@@ -62,11 +64,13 @@ export function validateJobCase(
   job: JobCase,
   registry?: ModuleRegistry,
   actionDefaults: ActionDefaultsMap = {},
+  opts?: { jobKind?: JobFileKind },
 ): ValidationResult {
   const issues: ValidationIssue[] = [];
   const warnings: string[] = [];
   const steps = normalizeSteps(job);
   const stepIndex = new Map<string, number>();
+  const jobKind = opts?.jobKind ?? 'case';
 
   for (let i = 0; i < steps.length; i += 1) {
     const id = steps[i].id;
@@ -84,6 +88,15 @@ export function validateJobCase(
   for (let i = 0; i < steps.length; i += 1) {
     const step = steps[i];
     const payload = applyActionDefaults(step.action, step.payload ?? {}, actionDefaults);
+
+    if (jobKind === 'case' && (step.action === 'memory.store' || step.action === 'memory.forget')) {
+      issues.push({
+        code: 'DISALLOWED_MEMORY_MUTATION',
+        stepId: step.id,
+        path: 'action',
+        message: `${step.action} is only allowed in seed jobs`,
+      });
+    }
 
     if (!isNamespacedAction(step.action)) {
       issues.push({

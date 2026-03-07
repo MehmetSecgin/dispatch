@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "jobType": "jsonplaceholder-from-memory",
+  "dependencies": {
+    "memory": [
+      {
+        "namespace": "jsonplaceholder-reference",
+        "key": "users.user-1",
+        "fill": {
+          "module": "jsonplaceholder",
+          "job": "cache-user-1"
+        }
+      }
+    ]
+  },
+  "scenario": {
+    "steps": [
+      {
+        "id": "recall-user",
+        "action": "memory.recall",
+        "payload": {
+          "namespace": "jsonplaceholder-reference",
+          "key": "users.user-1"
+        }
+      },
+      {
+        "id": "list-user-posts",
+        "action": "jsonplaceholder.list-user-posts",
+        "payload": {
+          "userId": "${step.recall-user.response.value.payload.id}"
+        }
+      }
+    ]
+  }
+}

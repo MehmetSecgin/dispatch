@@ -12,48 +12,25 @@
         }
       },
       {
-        "id": "store-user-id",
-        "action": "memory.store",
-        "payload": {
-          "key": "jsonplaceholder.todo-user-id",
-          "value": "${jsonpath(step:list-open-todos, $[0].userId)}"
-        }
-      },
-      {
-        "id": "store-todo-title",
-        "action": "memory.store",
-        "payload": {
-          "key": "jsonplaceholder.todo-title",
-          "value": "${jsonpath(step:list-open-todos, $[0].title)}"
-        }
-      },
-      {
         "id": "recall-user-id",
-        "action": "memory.recall",
+        "action": "flow.sleep",
         "payload": {
-          "key": "jsonplaceholder.todo-user-id"
+          "duration": "100ms"
         }
       },
       {
-        "id": "recall-todo-title",
-        "action": "memory.recall",
+        "id": "use-todo-data",
+        "action": "jsonplaceholder.get-user",
         "payload": {
-          "key": "jsonplaceholder.todo-title"
+          "id": "${jsonpath(step:list-open-todos, $[0].userId)}"
         }
       },
       {
         "id": "list-posts",
         "action": "jsonplaceholder.list-posts",
         "payload": {
-          "userId": "${step.recall-user-id.response.value}",
+          "userId": "${step.use-todo-data.response.id}",
           "limit": 3
-        }
-      },
-      {
-        "id": "forget-memory",
-        "action": "memory.forget",
-        "payload": {
-          "all": true
         }
       }
     ]

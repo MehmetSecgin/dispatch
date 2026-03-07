@@ -1,6 +1,11 @@
 import { ModuleDefinition, defineAction, defineModule } from '../../types.js';
 import { ForgetSchema, RecallSchema, StoreSchema } from './schemas.js';
-import { readMemory, writeMemory } from './store.js';
+import {
+  clearMemoryNamespace,
+  forgetMemoryValue,
+  recallMemoryValue,
+  storeMemoryValue,
+} from './store.js';
 
 export function createMemoryModule(sourcePath: string): ModuleDefinition {
   const moduleDef = defineModule({
@@ -8,66 +13,60 @@ export function createMemoryModule(sourcePath: string): ModuleDefinition {
     version: '1.0.0',
     actions: {
       store: defineAction({
-        description: 'Store a value by key in persistent memory.',
+        description: 'Store a value by key in persistent namespaced memory.',
         schema: StoreSchema,
         handler: async (ctx, payload) => {
-          const state = readMemory(ctx.runtime.configDir);
-          state[payload.key] = payload.value;
-          writeMemory(ctx.runtime.configDir, state);
+          storeMemoryValue(ctx.runtime.configDir, payload.namespace, payload.key, payload.value);
           return {
             response: {
               stored: true,
+              namespace: payload.namespace,
               key: payload.key,
               value: payload.value,
             },
-            detail: `stored key=${payload.key}`,
+            detail: `stored ${payload.namespace}.${payload.key}`,
           };
         },
       }),
       recall: defineAction({
-        description: 'Recall a value by key from persistent memory.',
+        description: 'Recall a value by key from persistent namespaced memory.',
         schema: RecallSchema,
         handler: async (ctx, payload) => {
-          const state = readMemory(ctx.runtime.configDir);
-          const found = Object.prototype.hasOwnProperty.call(state, payload.key);
+          const recalled = recallMemoryValue(ctx.runtime.configDir, payload.namespace, payload.key);
           return {
             response: {
-              found,
+              found: recalled.found,
+              namespace: payload.namespace,
               key: payload.key,
-              value: found ? state[payload.key] : payload.defaultValue,
+              value: recalled.found ? recalled.value : payload.defaultValue,
             },
-            detail: found ? `recalled key=${payload.key}` : `missing key=${payload.key}`,
+            detail: recalled.found ? `recalled ${payload.namespace}.${payload.key}` : `missing ${payload.namespace}.${payload.key}`,
           };
         },
       }),
       forget: defineAction({
-        description: 'Forget one key or clear all persistent memory.',
+        description: 'Forget one key or clear one namespaced persistent memory store.',
         schema: ForgetSchema,
         handler: async (ctx, payload) => {
-          const state = readMemory(ctx.runtime.configDir);
           if (payload.all) {
-            writeMemory(ctx.runtime.configDir, {});
             return {
               response: {
                 cleared: true,
-                removed: Object.keys(state).length,
+                namespace: payload.namespace,
+                removed: clearMemoryNamespace(ctx.runtime.configDir, payload.namespace),
               },
-              detail: 'cleared all memory',
+              detail: `cleared namespace=${payload.namespace}`,
             };
           }
-          const key = payload.key;
-          const forgotten = Object.prototype.hasOwnProperty.call(state, key);
-          if (forgotten) {
-            delete state[key];
-            writeMemory(ctx.runtime.configDir, state);
-          }
+          const forgotten = forgetMemoryValue(ctx.runtime.configDir, payload.namespace, payload.key);
           return {
             response: {
               cleared: false,
-              key,
+              namespace: payload.namespace,
+              key: payload.key,
               forgotten,
             },
-            detail: forgotten ? `forgot key=${key}` : `missing key=${key}`,
+            detail: forgotten ? `forgot ${payload.namespace}.${payload.key}` : `missing ${payload.namespace}.${payload.key}`,
           };
         },
       }),
