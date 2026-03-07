@@ -57,7 +57,25 @@ function readPath(target: unknown, segments: string[]): { found: boolean; value:
 }
 
 export function resolveMemoryPath(configDir: string, namespace: string): string {
-  return path.join(configDir, 'memory', `${sanitizeNamespace(namespace)}.json`);
+  return path.join(resolveMemoryRoot(configDir), `${sanitizeNamespace(namespace)}.json`);
+}
+
+export function resolveMemoryRoot(configDir: string): string {
+  return path.join(configDir, 'memory');
+}
+
+export function listMemoryNamespaces(configDir: string): Array<{ namespace: string; path: string }> {
+  const rootDir = resolveMemoryRoot(configDir);
+  if (!fs.existsSync(rootDir) || !fs.statSync(rootDir).isDirectory()) return [];
+
+  return fs
+    .readdirSync(rootDir)
+    .filter((entry) => entry.endsWith('.json'))
+    .map((entry) => ({
+      namespace: entry.slice(0, -'.json'.length),
+      path: path.join(rootDir, entry),
+    }))
+    .sort((a, b) => a.namespace.localeCompare(b.namespace));
 }
 
 export function readMemoryNamespace(configDir: string, namespace: string): MemoryState {

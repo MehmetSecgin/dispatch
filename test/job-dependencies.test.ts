@@ -176,9 +176,17 @@ describe('job dependency preflight', () => {
         next: [
           expect.objectContaining({
             command: expect.stringContaining('cache-user.job.seed.json'),
+            description: expect.stringContaining('seed job'),
           }),
         ],
       }),
+    );
+    expect(result.json?.details?.dependencyIssues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          message: expect.stringContaining('seed with'),
+        }),
+      ]),
     );
   });
 

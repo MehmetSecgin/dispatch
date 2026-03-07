@@ -21,6 +21,7 @@ import { defaultUserModulesDir, inferJobFileKind } from '../data/run-data.js';
 import { cliErrorFromCode, exitCodeForCliError, jsonErrorEnvelope } from '../core/errors.js';
 import { JobCaseSchema } from '../core/schema.js';
 import { validateJobCase } from '../job/validator.js';
+import { summarizeDeclaredMemoryDependencies } from '../job/dependencies.js';
 import { loadActionDefaults } from '../execution/action-defaults.js';
 
 function findZipBinary(): string {
@@ -29,6 +30,33 @@ function findZipBinary(): string {
 
 function findUnzipBinary(): string {
   return process.platform === 'win32' ? 'powershell' : 'unzip';
+}
+
+function formatJobLine(kind: 'seed' | 'case', id: string, jobPath: string): string {
+  const label = kind === 'seed' ? 'Seed job' : 'Case job';
+  return `  - ${label.padEnd(8)} ${id} -> ${shortenHomePath(jobPath)}`;
+}
+
+function formatDeclaredMemoryDependency(input: {
+  namespace: string;
+  key: string;
+  fill?: { module: string; job: string };
+}): string {
+  const location = `${input.namespace}.${input.key}`;
+  return input.fill ? `${location} (seed: ${input.fill.module}:${input.fill.job})` : location;
+}
+
+function renderJobWithDependencies(job: { kind: 'seed' | 'case'; id: string; path: string }): string[] {
+  const parsedJob = JobCaseSchema.safeParse(readJson(job.path));
+  const lines = [formatJobLine(job.kind, job.id, job.path)];
+  if (!parsedJob.success) return lines;
+
+  return [
+    ...lines,
+    ...summarizeDeclaredMemoryDependencies(parsedJob.data).map(
+      (dep) => `    memory: ${formatDeclaredMemoryDependency(dep)}`,
+    ),
+  ];
 }
 
 export function registerModuleCommands(program: Command): void {
@@ -114,15 +142,20 @@ export function registerModuleCommands(program: Command): void {
       };
       const hash = mod.sourcePath.startsWith('builtin:') ? undefined : hashDirectory(mod.sourcePath);
       const outWithHash = hash ? { ...out, hash } : out;
+      const caseJobs = outWithHash.jobs.filter((job) => job.kind === 'case');
+      const seedJobs = outWithHash.jobs.filter((job) => job.kind === 'seed');
       renderer.render({
         json: outWithHash,
         human: [
           `Module:   ${outWithHash.name}@${outWithHash.version} (${outWithHash.layer})`,
           `Source:   ${shortenHomePath(outWithHash.sourcePath)}`,
           `Actions:  ${outWithHash.actionCount}`,
-          `Jobs:     ${outWithHash.jobs.length}`,
+          `Jobs:     ${outWithHash.jobs.length} total`,
           ...outWithHash.actions.map((a) => `  - ${a.key}${a.description ? ` - ${a.description}` : ''}`),
-          ...outWithHash.jobs.map((job) => `  - [${job.kind}] ${job.id} -> ${shortenHomePath(job.path)}`),
+          ...(caseJobs.length > 0 ? [`Case Jobs: ${caseJobs.length}`] : []),
+          ...caseJobs.flatMap(renderJobWithDependencies),
+          ...(seedJobs.length > 0 ? [`Seed Jobs: ${seedJobs.length}`] : []),
+          ...seedJobs.flatMap(renderJobWithDependencies),
           ...(opts.verbose && hash ? [`Integrity:  ${hash}`] : []),
         ],
       });
