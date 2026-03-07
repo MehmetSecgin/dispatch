@@ -1,6 +1,6 @@
 {
-  "name": "dispatch",
-  "version": "0.0.1",
+  "name": "dispatchkit",
+  "version": "0.0.2",
   "description": "Deterministic dispatch CLI for flow-first job orchestration",
   "scripts": {
     "prebuild": "node scripts/write-skill-version.mjs",
@@ -23,7 +23,6 @@
   "author": "",
   "license": "ISC",
   "type": "module",
-  "private": true,
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
