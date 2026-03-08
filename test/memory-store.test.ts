@@ -28,34 +28,34 @@ describe('memory store', () => {
     const configDir = makeConfigDir();
     storeMemoryValue(configDir, 'reference-data', 'catalog.primary', {
       entryCount: 1,
-      labels: ['home', 'draw', 'away'],
+      labels: ['alpha', 'beta', 'gamma'],
     });
 
     expect(recallMemoryValue(configDir, 'reference-data', 'catalog.primary')).toEqual({
       found: true,
       value: {
         entryCount: 1,
-        labels: ['home', 'draw', 'away'],
+        labels: ['alpha', 'beta', 'gamma'],
       },
     });
   });
 
   it('keeps namespaces isolated', () => {
     const configDir = makeConfigDir();
-    storeMemoryValue(configDir, 'reference-data', 'catalog.1x2', { entryCount: 1 });
-    storeMemoryValue(configDir, 'other-team', 'catalog.1x2', { entryCount: 2 });
+    storeMemoryValue(configDir, 'reference-data', 'catalog.primary', { entries: 1 });
+    storeMemoryValue(configDir, 'other-team', 'catalog.primary', { entries: 2 });
 
     expect(readMemoryNamespace(configDir, 'reference-data')).toEqual({
       catalog: {
-        '1x2': {
-          entryCount: 1,
+        primary: {
+          entries: 1,
         },
       },
     });
     expect(readMemoryNamespace(configDir, 'other-team')).toEqual({
       catalog: {
-        '1x2': {
-          entryCount: 2,
+        primary: {
+          entries: 2,
         },
       },
     });
@@ -63,14 +63,14 @@ describe('memory store', () => {
 
   it('forgets one subtree without clearing siblings', () => {
     const configDir = makeConfigDir();
-    storeMemoryValue(configDir, 'reference-data', 'catalog.1x2', { entryCount: 1 });
-    storeMemoryValue(configDir, 'reference-data', 'catalog.totals', { entryCount: 2 });
+    storeMemoryValue(configDir, 'reference-data', 'catalog.primary', { entries: 1 });
+    storeMemoryValue(configDir, 'reference-data', 'catalog.secondary', { entries: 2 });
 
-    expect(forgetMemoryValue(configDir, 'reference-data', 'catalog.1x2')).toBe(true);
+    expect(forgetMemoryValue(configDir, 'reference-data', 'catalog.primary')).toBe(true);
     expect(readMemoryNamespace(configDir, 'reference-data')).toEqual({
       catalog: {
-        totals: {
-          entryCount: 2,
+        secondary: {
+          entries: 2,
         },
       },
     });
@@ -78,15 +78,15 @@ describe('memory store', () => {
 
   it('clears only one namespace file', () => {
     const configDir = makeConfigDir();
-    storeMemoryValue(configDir, 'reference-data', 'catalog.1x2', { entryCount: 1 });
-    storeMemoryValue(configDir, 'other-team', 'catalog.1x2', { entryCount: 2 });
+    storeMemoryValue(configDir, 'reference-data', 'catalog.primary', { entries: 1 });
+    storeMemoryValue(configDir, 'other-team', 'catalog.primary', { entries: 2 });
 
     expect(clearMemoryNamespace(configDir, 'reference-data')).toBe(1);
     expect(readMemoryNamespace(configDir, 'reference-data')).toEqual({});
     expect(readMemoryNamespace(configDir, 'other-team')).toEqual({
       catalog: {
-        '1x2': {
-          entryCount: 2,
+        primary: {
+          entries: 2,
         },
       },
     });
