@@ -7,6 +7,7 @@ import { sanitizeValue } from '../execution/sanitize.js';
 import { debugNs, redactDebug } from '../core/debug.js';
 import { jsonStringifySafe, writeJson } from '../utils/fs-json.js';
 import { getDefaultHttpPoolRegistry, HttpPoolRegistry } from '../services/http-pool.js';
+import { CookieJar, mergeCookieHeaders } from './cookies.js';
 import type { HttpMethod, HttpRequestOptions, HttpResponse } from './types.js';
 
 export interface HttpTransportOptions {
@@ -18,6 +19,7 @@ export interface HttpTransportOptions {
 
 export class HttpTransport {
   private readonly debug = debugNs('http');
+  private readonly cookieJar = new CookieJar();
 
   constructor(
     private readonly artifacts: RunArtifacts,
@@ -79,7 +81,14 @@ export class HttpTransport {
       }
     }
 
-    const headerFlags = Object.entries(headers).flatMap(([k, v]) => ['-H', `${k}: ${v}`]);
+    const mergedCookieHeader = mergeCookieHeaders(
+      this.cookieJar.getCookieHeader(new URL(resolvedUrl)),
+      headers.cookie,
+    );
+    if (mergedCookieHeader) headers.cookie = mergedCookieHeader;
+    else delete headers.cookie;
+
+    const headerFlags = Object.entries(headers).flatMap(([k, v]) => ['-H', `${k}: ${sanitizeHeaderValueForLog(k, v)}`]);
     const curlPreview = [
       'curl',
       '-sS',
@@ -107,6 +116,7 @@ export class HttpTransport {
         body: bodyData ?? undefined,
       });
       code = result.statusCode;
+      this.cookieJar.storeFromResponse(parsedUrl, result.headers);
       rawResponse = await result.body.text();
       endedAt = nowIso();
       fs.writeFileSync(respPath, rawResponse, 'utf8');
@@ -188,4 +198,10 @@ export class HttpTransport {
 function shellQuote(s: string): string {
   if (/^[a-zA-Z0-9_./:@=-]+$/.test(s)) return s;
   return `'${s.replace(/'/g, "'\\''")}'`;
+}
+
+function sanitizeHeaderValueForLog(name: string, value: string): string {
+  const lowerName = name.toLowerCase();
+  if (lowerName === 'cookie' || lowerName === 'authorization') return '[REDACTED]';
+  return value;
 }
