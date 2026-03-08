@@ -22,17 +22,18 @@ Example:
 
 ```json
 {
-  "namespace": "reference-data",
-  "key": "catalog.primary",
+  "namespace": "jsonplaceholder-reference",
+  "key": "users.user-1",
   "value": {
     "payload": {
-      "entryId": 123,
-      "labels": ["alpha", "beta", "gamma"]
+      "id": 1,
+      "name": "Leanne Graham",
+      "email": "Sincere@april.biz"
     },
     "meta": {
       "cachedAt": "2026-03-07T18:00:00Z",
-      "source": "catalog.get-primary",
-      "sourceKey": "primary"
+      "source": "jsonplaceholder.get-user",
+      "sourceKey": "1"
     }
   }
 }
@@ -81,6 +82,7 @@ Dispatch exposes a small read-only inspection surface:
 ```bash
 dispatch memory list
 dispatch memory inspect --namespace <name>
+dispatch memory inspect --namespace jsonplaceholder-reference
 ```
 
 - `memory list` shows the discovered namespace files under `~/.dispatch/memory/`
@@ -96,15 +98,15 @@ Jobs can declare prerequisites at the top level:
 {
   "dependencies": {
     "modules": [
-      { "name": "catalog", "version": "^0.4.0" }
+      { "name": "jsonplaceholder", "version": "^0.2.0" }
     ],
     "memory": [
       {
-        "namespace": "reference-data",
-        "key": "catalog.primary",
+        "namespace": "jsonplaceholder-reference",
+        "key": "users.user-1",
         "fill": {
-          "module": "catalog",
-          "job": "seed-primary-reference"
+          "module": "jsonplaceholder",
+          "job": "seed-user-1-reference"
         }
       }
     ]
@@ -155,6 +157,21 @@ my-module/
   jobs/
     sync-orders.job.case.json
     cache-reference-data.job.seed.json
+```
+
+Public reference example in this repo:
+
+```text
+modules/jsonplaceholder/
+  module.json
+  index.mjs
+  jobs/
+    jsonplaceholder-kitchen-sink.job.case.json
+    jsonplaceholder-relations.job.case.json
+    jsonplaceholder-poll.job.case.json
+    jsonplaceholder-run-many.job.case.json
+    seed-user-1-reference.job.seed.json
+    jsonplaceholder-from-memory.job.case.json
 ```
 
 Guidelines:

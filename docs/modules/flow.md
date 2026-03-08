@@ -26,25 +26,29 @@ Generic orchestration primitives.
 ```json
 {
   "schemaVersion": 1,
-  "jobType": "poll-example",
+  "jobType": "jsonplaceholder-poll",
   "scenario": {
     "steps": [
       {
-        "id": "wait",
+        "id": "wait-for-post",
         "action": "flow.poll",
         "payload": {
-          "action": "probe.get",
-          "payload": { "id": "${run.targetId}" },
-          "intervalMs": 1000,
-          "maxDurationMs": 15000,
+          "action": "jsonplaceholder.get-post",
+          "payload": { "id": 7 },
+          "intervalMs": 500,
+          "maxDurationMs": 5000,
+          "maxAttempts": 3,
           "conditions": {
             "mode": "ALL",
             "rules": [
-              { "path": "$.ready", "op": "eq", "value": true }
+              { "path": "$.id", "op": "eq", "value": 7 },
+              { "path": "$.title", "op": "exists" },
+              { "path": "$.title", "op": "regex", "value": ".*magnam.*" }
             ]
           },
           "store": {
-            "resourceId": "$.id"
+            "postTitle": "$.title",
+            "postId": "$.id"
           }
         }
       }
