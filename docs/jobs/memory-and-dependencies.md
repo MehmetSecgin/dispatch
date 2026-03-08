@@ -16,24 +16,40 @@ Memory is stored under:
 ~/.dispatch/memory/<namespace>.json
 ```
 
-Each namespace file contains nested JSON. Keys are dotted paths inside that file.
+Each namespace file contains nested JSON. Keys are dotted paths that address locations inside that file — `users.user-1` becomes `users → user-1` in the object tree.
 
-Example:
+For example, after running a seed job that stores two users, `~/.dispatch/memory/jsonplaceholder-reference.json` looks like:
 
 ```json
 {
-  "namespace": "jsonplaceholder-reference",
-  "key": "users.user-1",
-  "value": {
-    "payload": {
+  "users": {
+    "user-1": {
       "id": 1,
       "name": "Leanne Graham",
       "email": "Sincere@april.biz"
     },
-    "meta": {
-      "cachedAt": "2026-03-07T18:00:00Z",
-      "source": "jsonplaceholder.get-user",
-      "sourceKey": "1"
+    "user-2": {
+      "id": 2,
+      "name": "Ervin Howell",
+      "email": "Shanna@melissa.tv"
+    }
+  }
+}
+```
+
+The job step that wrote `user-1` would look like:
+
+```json
+{
+  "id": "store-user",
+  "action": "memory.store",
+  "payload": {
+    "namespace": "jsonplaceholder-reference",
+    "key": "users.user-1",
+    "value": {
+      "id": 1,
+      "name": "Leanne Graham",
+      "email": "Sincere@april.biz"
     }
   }
 }
@@ -178,6 +194,6 @@ Guidelines:
 
 - keep case jobs runnable without hidden side effects
 - use seed jobs to populate durable memory explicitly
-- store cached reference objects with `payload` and `meta`
+- store whatever shape makes sense for the consumer — the memory module accepts any value
 - prefer memory as an optimization layer, not a silent requirement
 - let `module.json` point at the runtime entry; keep action/schema definitions in the module entry itself
