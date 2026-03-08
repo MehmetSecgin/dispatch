@@ -1,3 +1,4 @@
+import { defineAction, defineModule } from '../../src/index.ts';
 import {
   ListPostsSchema,
   CreatePostSchema,
@@ -14,21 +15,6 @@ import {
 } from './schemas.mjs';
 
 const BASE = 'https://jsonplaceholder.typicode.com';
-
-export const schemas = {
-  'list-posts': ListPostsSchema,
-  'create-post': CreatePostSchema,
-  'get-post': GetPostSchema,
-  'update-post': UpdatePostSchema,
-  'patch-post': PatchPostSchema,
-  'delete-post': DeletePostSchema,
-  'get-user': GetUserSchema,
-  'list-user-posts': ListUserPostsSchema,
-  'list-user-todos': ListUserTodosSchema,
-  'list-user-albums': ListUserAlbumsSchema,
-  'list-post-comments': ListPostCommentsSchema,
-  'list-album-photos': ListAlbumPhotosSchema,
-};
 
 function toInt(value, label) {
   const parsed = Number(value);
@@ -164,3 +150,70 @@ export async function listAlbumPhotos(ctx, payload) {
   ctx.artifacts.appendActivity(`listAlbumPhotos albumId=${albumId}`);
   return { response, detail: `listed photos for album id=${albumId}` };
 }
+
+export default defineModule({
+  name: 'jsonplaceholder',
+  version: '0.2.0',
+  actions: {
+    'list-posts': defineAction({
+      description: 'List posts with optional filtering (GET /posts)',
+      schema: ListPostsSchema,
+      handler: listPosts,
+    }),
+    'create-post': defineAction({
+      description: 'Create a new post (POST /posts)',
+      schema: CreatePostSchema,
+      handler: createPost,
+    }),
+    'get-post': defineAction({
+      description: 'Get a post by ID (GET /posts/:id)',
+      schema: GetPostSchema,
+      handler: getPost,
+    }),
+    'update-post': defineAction({
+      description: 'Replace a post by ID (PUT /posts/:id)',
+      schema: UpdatePostSchema,
+      handler: updatePost,
+    }),
+    'patch-post': defineAction({
+      description: 'Partially update a post by ID (PATCH /posts/:id)',
+      schema: PatchPostSchema,
+      handler: patchPost,
+    }),
+    'delete-post': defineAction({
+      description: 'Delete a post by ID (DELETE /posts/:id)',
+      schema: DeletePostSchema,
+      handler: deletePost,
+    }),
+    'get-user': defineAction({
+      description: 'Get a user by ID (GET /users/:id)',
+      schema: GetUserSchema,
+      handler: getUser,
+    }),
+    'list-user-posts': defineAction({
+      description: 'List posts for a user (GET /users/:id/posts)',
+      schema: ListUserPostsSchema,
+      handler: listUserPosts,
+    }),
+    'list-user-todos': defineAction({
+      description: 'List todos for a user with optional completed filter (GET /todos?userId=...)',
+      schema: ListUserTodosSchema,
+      handler: listUserTodos,
+    }),
+    'list-user-albums': defineAction({
+      description: 'List albums for a user (GET /users/:id/albums)',
+      schema: ListUserAlbumsSchema,
+      handler: listUserAlbums,
+    }),
+    'list-post-comments': defineAction({
+      description: 'List comments for a post (GET /posts/:id/comments)',
+      schema: ListPostCommentsSchema,
+      handler: listPostComments,
+    }),
+    'list-album-photos': defineAction({
+      description: 'List photos for an album (GET /albums/:id/photos)',
+      schema: ListAlbumPhotosSchema,
+      handler: listAlbumPhotos,
+    }),
+  },
+});

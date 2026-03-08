@@ -1,55 +1,5 @@
 {
   "name": "jsonplaceholder",
   "version": "0.2.0",
-  "entry": "index.mjs",
-  "actions": {
-    "list-posts": {
-      "handler": "listPosts",
-      "description": "List posts with optional filtering (GET /posts)"
-    },
-    "create-post": {
-      "handler": "createPost",
-      "description": "Create a new post (POST /posts)"
-    },
-    "get-post": {
-      "handler": "getPost",
-      "description": "Get a post by ID (GET /posts/:id)"
-    },
-    "update-post": {
-      "handler": "updatePost",
-      "description": "Replace a post by ID (PUT /posts/:id)"
-    },
-    "patch-post": {
-      "handler": "patchPost",
-      "description": "Partially update a post by ID (PATCH /posts/:id)"
-    },
-    "delete-post": {
-      "handler": "deletePost",
-      "description": "Delete a post by ID (DELETE /posts/:id)"
-    },
-    "get-user": {
-      "handler": "getUser",
-      "description": "Get a user by ID (GET /users/:id)"
-    },
-    "list-user-posts": {
-      "handler": "listUserPosts",
-      "description": "List posts for a user (GET /users/:id/posts)"
-    },
-    "list-user-todos": {
-      "handler": "listUserTodos",
-      "description": "List todos for a user with optional completed filter (GET /todos?userId=...)"
-    },
-    "list-user-albums": {
-      "handler": "listUserAlbums",
-      "description": "List albums for a user (GET /users/:id/albums)"
-    },
-    "list-post-comments": {
-      "handler": "listPostComments",
-      "description": "List comments for a post (GET /posts/:id/comments)"
-    },
-    "list-album-photos": {
-      "handler": "listAlbumPhotos",
-      "description": "List photos for an album (GET /albums/:id/photos)"
-    }
-  }
+  "entry": "index.mjs"
 }
