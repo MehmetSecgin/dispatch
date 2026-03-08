@@ -62,7 +62,7 @@ describe('memory CLI', () => {
       `${JSON.stringify(
         {
           catalog: {
-            'primary': {
+            primary: {
               payload: {
                 entryCount: 1,
               },
@@ -92,7 +92,7 @@ describe('memory CLI', () => {
       path: memoryPath,
       values: {
         catalog: {
-          'primary': {
+          primary: {
             payload: {
               entryCount: 1,
             },
