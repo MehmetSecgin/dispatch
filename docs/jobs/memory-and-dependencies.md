@@ -163,3 +163,4 @@ Guidelines:
 - use seed jobs to populate durable memory explicitly
 - store cached reference objects with `payload` and `meta`
 - prefer memory as an optimization layer, not a silent requirement
+- let `module.json` point at the runtime entry; keep action/schema definitions in the module entry itself

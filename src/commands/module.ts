@@ -1,9 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { Command } from 'commander';
-import { ROOT_DIR } from '../data/paths.js';
 import { loadModuleRegistry, moduleInfo, hashDirectory } from '../modules/index.js';
 import { loadModuleFromDir, loadModules } from '../modules/loader.js';
 import { ModuleManifestSchema } from '../modules/manifest.js';
@@ -80,12 +78,30 @@ export function registerModuleCommands(program: Command): void {
         version,
         entry: 'index.mjs',
         metadata: { generatedBy: 'dispatch module init' },
-        actions: {} as Record<string, { handler: string; description: string }>,
       };
       fs.writeFileSync(path.join(outDir, 'module.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
       fs.writeFileSync(
         path.join(outDir, 'index.mjs'),
-        `// Add action handlers and reference them in module.json\n`,
+        [
+          "import { z } from 'zod';",
+          "import { defineAction, defineModule } from 'dispatchkit';",
+          '',
+          'export default defineModule({',
+          `  name: '${name}',`,
+          `  version: '${version}',`,
+          '  actions: {',
+          '    ping: defineAction({',
+          "      description: 'Ping action scaffold.',",
+          '      schema: z.object({}),',
+          '      handler: async () => ({',
+          "        response: { ok: true },",
+          "        detail: 'pong',",
+          '      }),',
+          '    }),',
+          '  },',
+          '});',
+          '',
+        ].join('\n'),
         'utf8',
       );
       renderer.line(`✓ Initialized module scaffold at ${shortenHomePath(outDir)}`);
@@ -187,7 +203,6 @@ export function registerModuleCommands(program: Command): void {
       }
       const entryPath = path.resolve(moduleDir, parsed.data.entry || 'index.mjs');
       if (!fs.existsSync(entryPath)) throw new Error(`Missing entry file: ${entryPath}`);
-      const imported = await import(pathToFileURL(entryPath).href);
       const moduleDef = await loadModuleFromDir(moduleDir, 'repo');
       const loaded = await loadModules();
       const registry = new ModuleRegistry();
@@ -196,12 +211,8 @@ export function registerModuleCommands(program: Command): void {
         registry.register(mod);
       }
       registry.register(moduleDef);
-      const actionEntries = Object.entries(parsed.data.actions);
-      const missing = actionEntries
-        .filter(([, a]) => typeof imported[a.handler] !== 'function')
-        .map(([, a]) => a.handler);
-      const emptyDescriptions = actionEntries
-        .filter(([, a]) => !a.description || !String(a.description).trim())
+      const emptyDescriptions = Object.entries(moduleDef.actions)
+        .filter(([, action]) => !action.description || !String(action.description).trim())
         .map(([name]) => name);
       const discoveredJobs = moduleDef.jobs ?? [];
       const jobIssues = discoveredJobs.flatMap((job) => {
@@ -225,11 +236,11 @@ export function registerModuleCommands(program: Command): void {
         }));
       });
       const out = {
-        valid: missing.length === 0 && emptyDescriptions.length === 0 && jobIssues.length === 0,
+        valid: Object.keys(moduleDef.actions).length > 0 && emptyDescriptions.length === 0 && jobIssues.length === 0,
         module: parsed.data.name,
         version: parsed.data.version,
         hash: hashDirectory(moduleDir),
-        missingHandlers: missing,
+        actionCount: Object.keys(moduleDef.actions).length,
         emptyDescriptions,
         jobs: discoveredJobs,
         jobIssues,
@@ -239,7 +250,7 @@ export function registerModuleCommands(program: Command): void {
         human: [
           `✓ Module valid -> ${out.module}@${out.version}`,
           ...(opts.verbose ? [`  Integrity: ${out.hash}`] : []),
-          ...(out.missingHandlers.length > 0 ? [`  Missing handlers: ${out.missingHandlers.join(', ')}`] : []),
+          `  Actions: ${out.actionCount}`,
           ...(out.emptyDescriptions.length > 0 ? [`  Empty descriptions: ${out.emptyDescriptions.join(', ')}`] : []),
           ...(out.jobs.length > 0 ? [`  Jobs: ${out.jobs.map((job) => `[${job.kind}] ${job.id}`).join(', ')}`] : []),
           ...(out.jobIssues.length > 0 ? out.jobIssues.map((issue) => `  Job issue: ${issue.path}: ${issue.message}`) : []),
@@ -268,17 +279,31 @@ export function registerModuleCommands(program: Command): void {
         version: '0.1.0',
         entry: 'index.mjs',
         metadata: { extends: m[1], generatedBy: 'dispatch override-init' },
-        actions: {
-          [m[2]]: {
-            handler: 'overrideAction',
-            description: `Override for ${from}`,
-          },
-        },
       };
       fs.writeFileSync(path.join(outDir, 'module.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
       fs.writeFileSync(
         path.join(outDir, 'index.mjs'),
-        `export async function overrideAction(ctx, payload) {\n  throw new Error('Implement overrideAction in ${from}');\n}\n`,
+        [
+          "import { z } from 'zod';",
+          "import { defineAction, defineModule } from 'dispatchkit';",
+          '',
+          'export async function overrideAction(ctx, payload) {',
+          `  throw new Error('Implement overrideAction in ${from}');`,
+          '}',
+          '',
+          'export default defineModule({',
+          `  name: '${moduleName}',`,
+          "  version: '0.1.0',",
+          '  actions: {',
+          `    '${m[2]}': defineAction({`,
+          `      description: 'Override for ${from}',`,
+          '      schema: z.object({}),',
+          '      handler: overrideAction,',
+          '    }),',
+          '  },',
+          '});',
+          '',
+        ].join('\n'),
         'utf8',
       );
       renderer.line(`✓ Created override skeleton at ${shortenHomePath(outDir)}`);
@@ -290,25 +315,8 @@ export function registerModuleCommands(program: Command): void {
     .requiredOption('--module <module>')
     .requiredOption('--action <action>')
     .option('--path <dir>', 'Existing module path')
-    .action(async (cmd) => {
-      const renderer = createRenderer({});
-      const moduleDir = path.resolve(String(cmd.path || path.join(ROOT_DIR, 'modules')));
-      const manifestPath = path.join(moduleDir, 'module.json');
-      if (!fs.existsSync(manifestPath)) throw new Error(`Missing module.json in ${moduleDir}`);
-      const manifest = ModuleManifestSchema.parse(readJson(manifestPath));
-      if (manifest.name !== String(cmd.module)) {
-        throw new Error(`Module name mismatch. manifest=${manifest.name} --module=${cmd.module}`);
-      }
-      const action = String(cmd.action);
-      const handler = `action_${action.replace(/-/g, '_')}`;
-      if (!manifest.actions[action]) {
-        manifest.actions[action] = { handler, description: `Added override action ${action}` };
-        fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-      }
-      const entryPath = path.resolve(moduleDir, manifest.entry || 'index.mjs');
-      const snippet = `\nexport async function ${handler}(ctx, payload) {\n  throw new Error('Implement ${manifest.name}.${action}');\n}\n`;
-      fs.appendFileSync(entryPath, snippet, 'utf8');
-      renderer.line(`✓ Added action ${action} to ${shortenHomePath(moduleDir)}`);
+    .action(async (_cmd) => {
+      throw new Error('override add is not supported for module-object authoring; edit the module entry directly');
     });
 
   moduleCmd

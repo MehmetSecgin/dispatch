@@ -8,10 +8,22 @@ import { readJson } from '../utils/fs-json.js';
 import { ModuleManifest, ModuleManifestSchema } from './manifest.js';
 import { loadBuiltinModules } from './builtin/index.js';
 import { discoverModuleJobs } from './jobs.js';
-import { ModuleAction, ModuleDefinition, ModuleLoadResult, ModuleLayer } from './types.js';
+import { DispatchModule, ModuleAction, ModuleDefinition, ModuleLoadResult, ModuleLayer } from './types.js';
 
 function isZodSchema(value: unknown): value is z.ZodSchema {
   return !!value && typeof value === 'object' && 'safeParse' in value && typeof value.safeParse === 'function';
+}
+
+function isModuleAction(value: unknown): value is ModuleAction {
+  return !!value && typeof value === 'object' && 'description' in value && 'schema' in value && 'handler' in value;
+}
+
+function isDispatchModule(value: unknown): value is DispatchModule {
+  if (!value || typeof value !== 'object') return false;
+  if (!('name' in value) || typeof value.name !== 'string') return false;
+  if (!('version' in value) || typeof value.version !== 'string') return false;
+  if (!('actions' in value) || !value.actions || typeof value.actions !== 'object') return false;
+  return Object.values(value.actions).every((action) => isModuleAction(action) && isZodSchema(action.schema));
 }
 
 function listModuleDirs(baseDir: string): string[] {
@@ -29,39 +41,27 @@ export async function loadModuleFromDir(dir: string, layer: ModuleLayer): Promis
   if (!fs.existsSync(entryPath)) throw new Error(`Missing module entry: ${entryPath}`);
 
   const mod = await import(pathToFileURL(entryPath).href);
-
-  const actions: Record<string, ModuleAction> = {};
-  for (const [actionName, actionManifest] of Object.entries(manifest.actions)) {
-    const fn = mod[actionManifest.handler];
-    if (typeof fn !== 'function') {
-      throw new Error(`Module '${manifest.name}' handler '${actionManifest.handler}' is not a function`);
+  if (isDispatchModule(mod.default)) {
+    if (mod.default.name !== manifest.name) {
+      throw new Error(`Module name mismatch: module.json=${manifest.name} entry=${mod.default.name}`);
     }
-    actions[actionName] = {
-      description: actionManifest.description,
-      schema: z.unknown(),
-      handler: fn,
+    if (mod.default.version !== manifest.version) {
+      throw new Error(`Module version mismatch: module.json=${manifest.version} entry=${mod.default.version}`);
+    }
+
+    return {
+      ...mod.default,
+      layer,
+      sourcePath: dir,
+      metadata: {
+        ...(mod.default.metadata ?? {}),
+        ...(manifest.metadata ?? {}),
+      },
+      jobs: discoverModuleJobs(dir),
     };
   }
 
-  // Optional: pick up schemas exported from module entry
-  // Structural guard — avoids brittle instanceof across bundle boundaries
-  if (mod.schemas && typeof mod.schemas === 'object') {
-    for (const [name, schema] of Object.entries(mod.schemas)) {
-      if (actions[name] && isZodSchema(schema)) {
-        actions[name] = { ...actions[name], schema };
-      }
-    }
-  }
-
-  return {
-    name: manifest.name,
-    version: manifest.version,
-    layer,
-    sourcePath: dir,
-    metadata: manifest.metadata as Record<string, unknown> | undefined,
-    actions,
-    jobs: discoverModuleJobs(dir),
-  };
+  throw new Error(`Module '${manifest.name}' must default export a DispatchModule (defineModule(...))`);
 }
 
 export async function loadModules(): Promise<ModuleLoadResult> {

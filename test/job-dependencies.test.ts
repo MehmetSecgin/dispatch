@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { resolveMemoryPath } from '../src/modules/builtin/memory/store.ts';
 
@@ -10,6 +11,7 @@ const FIXTURE_MODULE_NAME = `zz-memory-deps-fixture-${process.pid}`;
 const FIXTURE_MODULE_DIR = path.join(REPO_ROOT, 'modules', FIXTURE_MODULE_NAME);
 const FIXTURE_CASE_PATH = path.join(FIXTURE_MODULE_DIR, 'jobs', 'from-memory.job.case.json');
 const MEMORY_CONFIG_DIR = path.join(os.tmpdir(), `dispatch-memory-config-${process.pid}`);
+const SDK_IMPORT = JSON.stringify(pathToFileURL(path.join(REPO_ROOT, 'src', 'index.ts')).href);
 
 function runCli(args: string[]) {
   const out = spawnSync(process.execPath, ['--import', 'tsx', 'src/cli.ts', '--json', ...args], {
@@ -39,12 +41,6 @@ beforeAll(() => {
         name: FIXTURE_MODULE_NAME,
         version: '1.0.0',
         entry: 'index.mjs',
-        actions: {
-          'get-user': {
-            handler: 'getUser',
-            description: 'Return a deterministic user fixture.',
-          },
-        },
       },
       null,
       2,
@@ -55,12 +51,9 @@ beforeAll(() => {
     path.join(FIXTURE_MODULE_DIR, 'index.mjs'),
     [
       "import { z } from 'zod';",
+      `import { defineAction, defineModule } from ${SDK_IMPORT};`,
       '',
-      'export const schemas = {',
-      "  'get-user': z.object({ id: z.union([z.number().int(), z.string().min(1)]) }),",
-      '};',
-      '',
-      'export async function getUser(_ctx, payload) {',
+      'async function getUser(_ctx, payload) {',
       '  return {',
       '    response: {',
       '      id: payload.id,',
@@ -70,6 +63,18 @@ beforeAll(() => {
       "    detail: `user=${payload.id}`,",
       '  };',
       '}',
+      '',
+      'export default defineModule({',
+      `  name: '${FIXTURE_MODULE_NAME}',`,
+      "  version: '1.0.0',",
+      '  actions: {',
+      "    'get-user': defineAction({",
+      "      description: 'Return a deterministic user fixture.',",
+      "      schema: z.object({ id: z.union([z.number().int(), z.string().min(1)]) }),",
+      '      handler: getUser,',
+      '    }),',
+      '  },',
+      '});',
       '',
     ].join('\n'),
     'utf8',

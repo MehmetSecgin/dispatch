@@ -1,12 +1,14 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const THIS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(THIS_DIR, '..');
+const SDK_IMPORT = JSON.stringify(pathToFileURL(path.join(REPO_ROOT, 'src', 'index.ts')).href);
+const ZOD_IMPORT = JSON.stringify(pathToFileURL(path.join(REPO_ROOT, 'node_modules', 'zod', 'index.js')).href);
 
 function runCli(args: string[]) {
   const out = spawnSync(process.execPath, ['--import', 'tsx', 'src/cli.ts', '--json', ...args], {
@@ -98,12 +100,6 @@ describe('module CLI', () => {
           name: 'memory-mutation-fixture',
           version: '1.0.0',
           entry: 'index.mjs',
-          actions: {
-            noop: {
-              handler: 'noop',
-              description: 'No-op fixture action.',
-            },
-          },
         },
         null,
         2,
@@ -112,7 +108,27 @@ describe('module CLI', () => {
     );
     fs.writeFileSync(
       path.join(moduleDir, 'index.mjs'),
-      "export async function noop() { return { response: { ok: true }, detail: 'ok' }; }\n",
+      [
+        `import { defineAction, defineModule } from ${SDK_IMPORT};`,
+        `import { z } from ${ZOD_IMPORT};`,
+        '',
+        'async function noop() {',
+        "  return { response: { ok: true }, detail: 'ok' };",
+        '}',
+        '',
+        'export default defineModule({',
+        "  name: 'memory-mutation-fixture',",
+        "  version: '1.0.0',",
+        '  actions: {',
+        '    noop: defineAction({',
+        "      description: 'No-op fixture action.',",
+        '      schema: z.object({}),',
+        '      handler: noop,',
+        '    }),',
+        '  },',
+        '});',
+        '',
+      ].join('\n'),
       'utf8',
     );
     fs.writeFileSync(

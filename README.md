@@ -64,6 +64,9 @@ dispatch job run --case jobs/flow-sleep.job.case.json
 dispatch job assert --run-id latest
 ```
 
+Release notes for maintainers live in [docs/release.md](docs/release.md).
+Agent-native product principles live in [docs/agent-native.md](docs/agent-native.md).
+
 ---
 
 ## Job Cases
@@ -309,26 +312,23 @@ Generates two files:
 
 ```
 payments/
-  module.json     — manifest
-  index.mjs       — action handler exports
+  module.json     — discovery manifest
+  index.mjs       — runtime module entry
 ```
 
 ```json
 {
   "name": "payments",
   "version": "0.1.0",
-  "entry": "index.mjs",
-  "actions": {
-    "register-webhook": {
-      "handler": "registerWebhook",
-      "description": "Register a webhook endpoint"
-    }
-  }
+  "entry": "index.mjs"
 }
 ```
 
 ```js
-export async function registerWebhook(ctx, payload) {
+import { z } from 'zod';
+import { defineAction, defineModule } from 'dispatchkit';
+
+async function registerWebhook(ctx, payload) {
   return {
     response: {
       ok: true,
@@ -337,7 +337,25 @@ export async function registerWebhook(ctx, payload) {
     detail: 'replace with real implementation',
   };
 }
+
+export default defineModule({
+  name: 'payments',
+  version: '0.1.0',
+  actions: {
+    'register-webhook': defineAction({
+      description: 'Register a webhook endpoint',
+      schema: z.object({
+        url: z.string().url(),
+      }),
+      handler: registerWebhook,
+    }),
+  },
+});
 ```
+
+- `module.json` is discovery metadata and runtime entry location
+- `index.mjs` default-exports the full module object
+- external modules may be authored in TS and compiled to JS; `module.json.entry` should point at the built runtime file
 
 Modules can also ship job files under `jobs/`:
 
