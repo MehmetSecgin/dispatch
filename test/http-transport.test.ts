@@ -172,13 +172,22 @@ describe('HttpTransport', () => {
   });
 
   describe('curl preview', () => {
-    it('shell-quotes header values with spaces', async () => {
+    it('redacts authorization header values', async () => {
       const pool = stubPool();
       const artifacts = stubArtifacts();
       const http = new HttpTransport(artifacts, { poolRegistry: stubPoolRegistry(pool) });
       await http.get('https://example.com/x', { headers: { Authorization: 'Bearer my token' } });
       const curl: string = artifacts.appendCallLog.mock.calls[0][0].curl;
-      expect(curl).toContain("'authorization: Bearer my token'");
+      expect(curl).toContain("'authorization: [REDACTED]'");
+    });
+
+    it('redacts cookie header values', async () => {
+      const pool = stubPool();
+      const artifacts = stubArtifacts();
+      const http = new HttpTransport(artifacts, { poolRegistry: stubPoolRegistry(pool) });
+      await http.get('https://example.com/x', { headers: { Cookie: 'sid=abc123; theme=dark' } });
+      const curl: string = artifacts.appendCallLog.mock.calls[0][0].curl;
+      expect(curl).toContain("'cookie: [REDACTED]'");
     });
 
     it('shell-quotes body with special characters', async () => {
@@ -206,6 +215,117 @@ describe('HttpTransport', () => {
       const http = new HttpTransport(stubArtifacts(), { poolRegistry: stubPoolRegistry(pool) });
       const resp = await http.get('https://example.com/x');
       expect(resp).toEqual({ status: 201, body: { id: 42 } });
+    });
+  });
+
+  describe('cookie jar', () => {
+    it('stores set-cookie response headers and sends cookies on later requests', async () => {
+      const pool = {
+        request: vi
+          .fn()
+          .mockResolvedValueOnce({
+            statusCode: 200,
+            headers: { 'set-cookie': ['sid=abc123; Path=/; HttpOnly'] },
+            body: { text: () => Promise.resolve('{"ok":true}') },
+          })
+          .mockResolvedValueOnce({
+            statusCode: 200,
+            headers: {},
+            body: { text: () => Promise.resolve('{"ok":true}') },
+          }),
+      };
+      const http = new HttpTransport(stubArtifacts(), { poolRegistry: stubPoolRegistry(pool as ReturnType<typeof stubPool>) });
+
+      await http.post('https://example.com/login', { user: 'demo' });
+      await http.get('https://example.com/me');
+
+      expect(pool.request.mock.calls[1][0].headers.cookie).toBe('sid=abc123');
+    });
+
+    it('isolates cookies per transport instance', async () => {
+      const pool = {
+        request: vi
+          .fn()
+          .mockResolvedValueOnce({
+            statusCode: 200,
+            headers: { 'set-cookie': ['sid=abc123; Path=/'] },
+            body: { text: () => Promise.resolve('{"ok":true}') },
+          })
+          .mockResolvedValueOnce({
+            statusCode: 200,
+            headers: {},
+            body: { text: () => Promise.resolve('{"ok":true}') },
+          }),
+      };
+      const registry = stubPoolRegistry(pool as ReturnType<typeof stubPool>);
+      const first = new HttpTransport(stubArtifacts(), { poolRegistry: registry });
+      const second = new HttpTransport(stubArtifacts(), { poolRegistry: registry });
+
+      await first.post('https://example.com/login', { user: 'demo' });
+      await second.get('https://example.com/me');
+
+      expect(pool.request.mock.calls[1][0].headers.cookie).toBeUndefined();
+    });
+
+    it('honors path and secure cookie restrictions', async () => {
+      const pool = {
+        request: vi
+          .fn()
+          .mockResolvedValueOnce({
+            statusCode: 200,
+            headers: {
+              'set-cookie': [
+                'sid=abc123; Path=/admin; Secure',
+                'theme=dark; Path=/',
+              ],
+            },
+            body: { text: () => Promise.resolve('{"ok":true}') },
+          })
+          .mockResolvedValue({
+            statusCode: 200,
+            headers: {},
+            body: { text: () => Promise.resolve('{"ok":true}') },
+          }),
+      };
+      const http = new HttpTransport(stubArtifacts(), { poolRegistry: stubPoolRegistry(pool as ReturnType<typeof stubPool>) });
+
+      await http.post('https://example.com/login', { user: 'demo' });
+      await http.get('http://example.com/admin/me');
+      await http.get('https://example.com/admin/me');
+      await http.get('https://example.com/profile');
+
+      expect(pool.request.mock.calls[1][0].headers.cookie).toBe('theme=dark');
+      expect(pool.request.mock.calls[2][0].headers.cookie).toBe('sid=abc123; theme=dark');
+      expect(pool.request.mock.calls[3][0].headers.cookie).toBe('theme=dark');
+    });
+
+    it('drops expired cookies and lets manual cookie values override jar values', async () => {
+      const pool = {
+        request: vi
+          .fn()
+          .mockResolvedValueOnce({
+            statusCode: 200,
+            headers: {
+              'set-cookie': [
+                'sid=stale; Max-Age=0; Path=/',
+                'theme=dark; Path=/',
+                'mode=jar; Path=/',
+              ],
+            },
+            body: { text: () => Promise.resolve('{"ok":true}') },
+          })
+          .mockResolvedValueOnce({
+            statusCode: 200,
+            headers: {},
+            body: { text: () => Promise.resolve('{"ok":true}') },
+          }),
+      };
+      const http = new HttpTransport(stubArtifacts(), { poolRegistry: stubPoolRegistry(pool as ReturnType<typeof stubPool>) });
+
+      await http.post('https://example.com/login', { user: 'demo' });
+      await http.get('https://example.com/me', { headers: { Cookie: 'mode=manual; extra=yes' } });
+
+      expect(pool.request.mock.calls[1][0].headers.cookie).toBe('theme=dark; mode=manual; extra=yes');
     });
   });
 
