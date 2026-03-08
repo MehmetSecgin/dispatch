@@ -58,9 +58,15 @@ npm install -g dispatchkit
 dispatch self-check
 dispatch doctor
 
-# Run the example job
+# Run the built-in flow example
 dispatch job validate --case jobs/flow-sleep.job.case.json
 dispatch job run --case jobs/flow-sleep.job.case.json
+dispatch job assert --run-id latest
+
+# Try the repo jsonplaceholder module
+dispatch module inspect jsonplaceholder
+dispatch job validate --case modules/jsonplaceholder/jobs/jsonplaceholder-kitchen-sink.job.case.json
+dispatch job run --case modules/jsonplaceholder/jobs/jsonplaceholder-kitchen-sink.job.case.json
 dispatch job assert --run-id latest
 ```
 
@@ -137,13 +143,16 @@ Keys are dotted paths inside the namespace file, for example:
 ```json
 {
   "namespace": "reference-data",
-  "key": "catalog.primary",
+  "key": "users.user-1",
   "value": {
-    "payload": { "...": "..." },
+    "payload": {
+      "id": 1,
+      "name": "Leanne Graham"
+    },
     "meta": {
       "cachedAt": "2026-03-07T18:00:00Z",
-      "source": "catalog.get-primary",
-      "sourceKey": "primary"
+      "source": "jsonplaceholder.get-user",
+      "sourceKey": "1"
     }
   }
 }
@@ -157,15 +166,15 @@ Jobs can declare explicit prerequisites:
 {
   "dependencies": {
     "modules": [
-      { "name": "catalog", "version": "^0.4.0" }
+      { "name": "jsonplaceholder", "version": "^0.2.0" }
     ],
     "memory": [
       {
-        "namespace": "reference-data",
-        "key": "catalog.primary",
+        "namespace": "jsonplaceholder-reference",
+        "key": "users.user-1",
         "fill": {
-          "module": "catalog",
-          "job": "seed-primary-reference"
+          "module": "jsonplaceholder",
+          "job": "seed-user-1-reference"
         }
       }
     ]
@@ -371,6 +380,33 @@ payments/
 - `dispatch module inspect <name> --json` lists discovered shipped jobs
 - `dispatch module validate --path <dir>` validates both handlers and shipped job files
 - Use seed jobs for cache/bootstrap flows that populate memory for later case jobs
+
+### Example repo module: `jsonplaceholder`
+
+The repository ships a public example module under [`modules/jsonplaceholder`](/Users/mehmetsecgin/dispatch/modules/jsonplaceholder).
+
+Useful commands:
+
+```bash
+dispatch module inspect jsonplaceholder
+dispatch module validate --path modules/jsonplaceholder
+dispatch job validate --case modules/jsonplaceholder/jobs/jsonplaceholder-kitchen-sink.job.case.json
+dispatch job run --case modules/jsonplaceholder/jobs/jsonplaceholder-kitchen-sink.job.case.json
+dispatch job run-many --case modules/jsonplaceholder/jobs/jsonplaceholder-run-many.job.case.json --count 3
+```
+
+Example shipped jobs:
+
+- `jsonplaceholder-kitchen-sink.job.case.json`
+  Exercises `flow.sleep`, `flow.poll`, interpolation, `run.*`, and a follow-up create call.
+- `jsonplaceholder-relations.job.case.json`
+  Traverses user -> albums -> photos and user -> posts -> comments.
+- `jsonplaceholder-poll.job.case.json`
+  Focused `flow.poll` example using `jsonplaceholder.get-post`.
+- `seed-user-1-reference.job.seed.json`
+  Populates durable memory under `jsonplaceholder-reference.users.user-1`.
+- `jsonplaceholder-from-memory.job.case.json`
+  Declares a memory dependency and recalls the seeded user before listing posts.
 
 ### Pack and install
 

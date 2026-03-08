@@ -8,6 +8,11 @@ The runtime entry should default-export the full module object, typically using 
 
 External modules may be authored directly in `.mjs`, but a TS-authored module compiled to a built JS entry is also a first-class pattern. In that case, `module.json.entry` should point at the built file.
 
+Reference example:
+
+- [`modules/jsonplaceholder`](/Users/mehmetsecgin/dispatch/modules/jsonplaceholder)
+  A public repo module showing action definitions, schemas, case jobs, and a seed job.
+
 ## Small Modules (1-5 actions)
 
 ```text
@@ -63,3 +68,4 @@ mymodule/
 - `schemas.mjs` stays flat at the module root. If schemas grow, split by concern such as `webhooks.schema.mjs`, but do not create one schema file per action.
 - A reader opening `index.mjs` should be able to see the full action surface of the module without scrolling through implementation details.
 - Prefer `defineModule(...)` + `defineAction(...)` so schema and handler definitions stay together.
+- Ship at least one realistic case job. The `jsonplaceholder` module is a good reference for this.
