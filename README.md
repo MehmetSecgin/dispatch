@@ -138,22 +138,27 @@ Memory is for durable cross-run state, not same-run wiring. Persistent values li
 ~/.dispatch/memory/<namespace>.json
 ```
 
-Keys are dotted paths inside the namespace file, for example:
+Keys are dotted paths that address locations inside the namespace file. The file on disk is plain nested JSON:
 
 ```json
 {
-  "namespace": "reference-data",
-  "key": "users.user-1",
-  "value": {
-    "payload": {
-      "id": 1,
-      "name": "Leanne Graham"
-    },
-    "meta": {
-      "cachedAt": "2026-03-07T18:00:00Z",
-      "source": "jsonplaceholder.get-user",
-      "sourceKey": "1"
-    }
+  "users": {
+    "user-1": { "id": 1, "name": "Leanne Graham" },
+    "user-2": { "id": 2, "name": "Ervin Howell" }
+  }
+}
+```
+
+A seed job step that writes `user-1`:
+
+```json
+{
+  "id": "store-user",
+  "action": "memory.store",
+  "payload": {
+    "namespace": "reference-data",
+    "key": "users.user-1",
+    "value": { "id": 1, "name": "Leanne Graham" }
   }
 }
 ```
