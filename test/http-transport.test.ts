@@ -135,6 +135,27 @@ describe('HttpTransport', () => {
       const sentHeaders = pool.request.mock.calls[0][0].headers;
       expect(sentHeaders['content-type']).toBe('application/json');
     });
+
+    it('withDefaults merges parent, child, and per-request headers', async () => {
+      const pool = stubPool();
+      const http = new HttpTransport(stubArtifacts(), {
+        poolRegistry: stubPoolRegistry(pool),
+        defaultHeaders: { Accept: 'application/json', 'X-Parent': 'parent' },
+      });
+      const api = http.withDefaults({
+        defaultHeaders: { Accept: 'text/plain', 'X-Child': 'child' },
+      });
+
+      await api.get('https://example.com/x', {
+        headers: { 'X-Child': 'request', 'X-Req': 'req' },
+      });
+
+      const sentHeaders = pool.request.mock.calls[0][0].headers;
+      expect(sentHeaders.accept).toBe('text/plain');
+      expect(sentHeaders['x-parent']).toBe('parent');
+      expect(sentHeaders['x-child']).toBe('request');
+      expect(sentHeaders['x-req']).toBe('req');
+    });
   });
 
   describe('URL resolution', () => {
@@ -168,6 +189,22 @@ describe('HttpTransport', () => {
       const http = new HttpTransport(stubArtifacts(), { poolRegistry: reg, baseUrl: 'https://api.example.com/' });
       await http.get('/events');
       expect(reg.getForUrl).toHaveBeenCalledWith('https://api.example.com/events');
+    });
+
+    it('withDefaults resolves relative paths against child baseUrl without mutating parent', async () => {
+      const pool = stubPool();
+      const reg = stubPoolRegistry(pool);
+      const http = new HttpTransport(stubArtifacts(), {
+        poolRegistry: reg,
+        baseUrl: 'https://parent.example.com',
+      });
+      const child = http.withDefaults({ baseUrl: 'https://child.example.com/api' });
+
+      await child.get('/events');
+      await http.get('/status');
+
+      expect(reg.getForUrl).toHaveBeenNthCalledWith(1, 'https://child.example.com/api/events');
+      expect(reg.getForUrl).toHaveBeenNthCalledWith(2, 'https://parent.example.com/status');
     });
   });
 
@@ -267,6 +304,32 @@ describe('HttpTransport', () => {
       expect(pool.request.mock.calls[1][0].headers.cookie).toBeUndefined();
     });
 
+    it('shares cookies across parent and derived clients in one run', async () => {
+      const pool = {
+        request: vi
+          .fn()
+          .mockResolvedValueOnce({
+            statusCode: 200,
+            headers: { 'set-cookie': ['sid=abc123; Path=/; HttpOnly'] },
+            body: { text: () => Promise.resolve('{"ok":true}') },
+          })
+          .mockResolvedValueOnce({
+            statusCode: 200,
+            headers: {},
+            body: { text: () => Promise.resolve('{"ok":true}') },
+          }),
+      };
+      const http = new HttpTransport(stubArtifacts(), {
+        poolRegistry: stubPoolRegistry(pool as ReturnType<typeof stubPool>),
+      });
+      const api = http.withDefaults({ baseUrl: 'https://example.com' });
+
+      await http.post('https://example.com/login', { user: 'demo' });
+      await api.get('/me');
+
+      expect(pool.request.mock.calls[1][0].headers.cookie).toBe('sid=abc123');
+    });
+
     it('honors path and secure cookie restrictions', async () => {
       const pool = {
         request: vi
@@ -326,6 +389,31 @@ describe('HttpTransport', () => {
       await http.get('https://example.com/me', { headers: { Cookie: 'mode=manual; extra=yes' } });
 
       expect(pool.request.mock.calls[1][0].headers.cookie).toBe('theme=dark; mode=manual; extra=yes');
+    });
+  });
+
+  describe('module author pattern', () => {
+    it('supports building a scoped API client once and reusing it', async () => {
+      const pool = stubPool();
+      const reg = stubPoolRegistry(pool);
+      const ctxHttp = new HttpTransport(stubArtifacts(), { poolRegistry: reg });
+      const api = ctxHttp.withDefaults({
+        baseUrl: 'https://api.example.com/v1',
+        defaultHeaders: { Authorization: 'Bearer secret-token', 'X-Client': 'dispatch' },
+      });
+
+      await api.get('/users/me');
+
+      expect(reg.getForUrl).toHaveBeenCalledWith('https://api.example.com/v1/users/me');
+      expect(pool.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            authorization: 'Bearer secret-token',
+            'x-client': 'dispatch',
+          }),
+          path: '/v1/users/me',
+        }),
+      );
     });
   });
 
