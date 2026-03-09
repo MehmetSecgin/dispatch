@@ -62,9 +62,15 @@ const JobDependenciesSchema = z.object({
   memory: z.array(MemoryDependencySchema).optional(),
 });
 
+const JobHttpSchema = z.object({
+  baseUrl: z.string().min(1).optional(),
+  defaultHeaders: z.record(z.string(), z.string()).optional(),
+});
+
 export const JobCaseSchema = z.object({
   schemaVersion: z.number().int().min(1),
   jobType: z.string().min(1),
+  http: JobHttpSchema.optional(),
   dependencies: JobDependenciesSchema.optional(),
   scenario: z.object({
     steps: z.array(StepSchema).min(1),
@@ -75,6 +81,7 @@ export const JobCaseSchema = z.object({
 
 export type JobCase = z.infer<typeof JobCaseSchema>;
 export type JobStep = z.infer<typeof StepSchema> & { id: string };
+export type JobHttpConfig = z.infer<typeof JobHttpSchema>;
 export type JobDependencies = z.infer<typeof JobDependenciesSchema>;
 export type ModuleDependency = z.infer<typeof ModuleDependencySchema>;
 export type MemoryDependency = z.infer<typeof MemoryDependencySchema>;

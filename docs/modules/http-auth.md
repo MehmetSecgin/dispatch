@@ -2,8 +2,9 @@
 
 `ctx.http` now supports simple cookie-backed auth flows automatically.
 
-It also supports explicit child clients via `ctx.http.withDefaults(...)` for shared base
-URLs and headers inside a run.
+Jobs can declare shared base URLs and default headers with the top-level `http` block,
+and handlers can still derive explicit child clients via `ctx.http.withDefaults(...)`
+when they need narrower defaults inside a run.
 
 ## What module authors should assume
 
@@ -21,8 +22,21 @@ This means an auth module can be simple:
 
 No module-level cookie jar or manual cookie plumbing is needed.
 
-For stable request config that is shared across multiple calls, derive a scoped client
-explicitly:
+For stable request config that is shared across the whole run, declare it in the job:
+
+```json
+{
+  "http": {
+    "baseUrl": "https://api.example.com",
+    "defaultHeaders": {
+      "x-client": "dispatch"
+    }
+  }
+}
+```
+
+For stable request config that is shared across multiple calls inside one handler/helper,
+derive a scoped client explicitly:
 
 ```js
 const api = ctx.http.withDefaults({
@@ -36,7 +50,8 @@ const api = ctx.http.withDefaults({
 const me = await api.get('/me');
 ```
 
-This keeps auth/session continuity automatic while keeping shared request config explicit.
+This keeps auth/session continuity automatic while keeping shared request config explicit
+at both the job and handler levels.
 
 ## What belongs in a module
 

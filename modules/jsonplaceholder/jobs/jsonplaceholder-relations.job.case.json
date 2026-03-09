@@ -1,6 +1,9 @@
 {
   "schemaVersion": 1,
   "jobType": "jsonplaceholder-relations",
+  "http": {
+    "baseUrl": "https://jsonplaceholder.typicode.com"
+  },
   "scenario": {
     "steps": [
       {
