@@ -86,6 +86,31 @@ describe('validateJobCase (flow-only)', () => {
     expect(validateJobCase(badJob).issues.some(i => i.code === 'FORWARD_STEP_REFERENCE')).toBe(true);
   });
 
+  it('rejects invalid capture mappings', () => {
+    const job = parseJob({
+      schemaVersion: 1,
+      jobType: 'invalid-capture',
+      scenario: {
+        steps: [
+          {
+            id: 'publish',
+            action: 'flow.sleep',
+            payload: { duration: '1s' },
+            capture: {
+              stableId: 'response.id',
+              'bad..key': 'exports.generatedId',
+            },
+          },
+        ],
+      },
+    });
+
+    const result = validateJobCase(job);
+    expect(result.valid).toBe(false);
+    expect(result.issues.some(i => i.code === 'INVALID_CAPTURE' && i.message.includes("must start with 'exports.'"))).toBe(true);
+    expect(result.issues.some(i => i.code === 'INVALID_CAPTURE' && i.message.includes('non-empty dot segments'))).toBe(true);
+  });
+
   it('fails invalid flow.poll target and jsonpath', async () => {
     const job = parseJob({
       schemaVersion: 1,

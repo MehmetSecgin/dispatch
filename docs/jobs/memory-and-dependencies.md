@@ -15,6 +15,20 @@ Step values may come from either:
 
 Use `exports` when an action generates or finalizes a value during execution and later steps need that exact value, but the server response should stay unchanged.
 
+If the job wants a stable workflow-level name, use step capture to promote selected exports into `run.*`:
+
+```json
+{
+  "id": "publish",
+  "action": "example.publish",
+  "capture": {
+    "workflowId": "exports.generatedId"
+  }
+}
+```
+
+Later steps can use `${run.workflowId}` instead of repeating `${step.publish.exports.generatedId}`.
+
 ## Memory namespaces
 
 Memory is stored under:

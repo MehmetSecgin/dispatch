@@ -27,6 +27,8 @@ const StepActionSchema = z
   .string()
   .regex(/^[a-z0-9-]+\.[a-z0-9-]+$/, 'Action must be namespaced: <module>.<action>');
 
+const StepCaptureSchema = z.record(z.string(), z.string());
+
 const StepSchema = z
   .object({
     id: z.string().min(1).optional(),
@@ -34,6 +36,7 @@ const StepSchema = z
     atAbsolute: z.string().optional(),
     action: StepActionSchema,
     payload: z.record(z.string(), z.unknown()).optional(),
+    capture: StepCaptureSchema.optional(),
   })
   .superRefine((v, ctx) => {
     if (v.atRelative && v.atAbsolute) {

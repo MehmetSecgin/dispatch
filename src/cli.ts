@@ -20,6 +20,7 @@ import {
 import { readJson } from './utils/fs-json.js';
 import { cliErrorFromCode, exitCodeForCliError, jsonErrorEnvelope } from './core/errors.js';
 import { SKILL_VERSION } from './generated/skill-version.js';
+import { schemaToJsonSchema } from './modules/schema-contracts.js';
 
 const CLI_VERSION = packageJson.version;
 
@@ -284,6 +285,8 @@ async function main(): Promise<void> {
         action: cmd.name,
         module: resolved.moduleName,
         description: resolved.definition.description ?? null,
+        inputSchema: schemaToJsonSchema(resolved.definition.schema),
+        exportsSchema: schemaToJsonSchema(resolved.definition.exportsSchema),
       });
     });
 

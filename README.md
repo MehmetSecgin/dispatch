@@ -141,6 +141,20 @@ return {
 }
 ```
 
+If the job wants a stable workflow-level name instead of coupling later steps to the action’s export key, capture it explicitly into `run.*`:
+
+```json
+{
+  "id": "publish",
+  "action": "example.publish",
+  "capture": {
+    "workflowId": "exports.generatedId"
+  }
+}
+```
+
+Later steps can then use `${run.workflowId}`.
+
 ### Job-level HTTP defaults
 
 Jobs can declare shared request context once at the top level:
@@ -449,6 +463,7 @@ payments/
 ```
 
 - `dispatch module inspect <name> --json` lists discovered shipped jobs
+- `dispatch schema action --name <module.action> --print` includes both input schema and declared export schema when present
 - `dispatch module validate --path <dir>` validates both handlers and shipped job files
 - Use seed jobs for cache/bootstrap flows that populate memory for later case jobs
 
