@@ -287,6 +287,7 @@ async function main(): Promise<void> {
         description: resolved.definition.description ?? null,
         inputSchema: schemaToJsonSchema(resolved.definition.schema),
         exportsSchema: schemaToJsonSchema(resolved.definition.exportsSchema),
+        credentialSchema: schemaToJsonSchema(resolved.definition.credentialSchema),
       });
     });
 

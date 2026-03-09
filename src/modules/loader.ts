@@ -15,7 +15,18 @@ function isZodSchema(value: unknown): value is z.ZodSchema {
 }
 
 function isModuleAction(value: unknown): value is ModuleAction {
-  return !!value && typeof value === 'object' && 'description' in value && 'schema' in value && 'handler' in value;
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    'description' in value &&
+    'schema' in value &&
+    'handler' in value &&
+    isZodSchema((value as ModuleAction).schema) &&
+    (!('exportsSchema' in value) || (value as ModuleAction).exportsSchema === undefined || isZodSchema((value as ModuleAction).exportsSchema)) &&
+    (!('credentialSchema' in value) ||
+      (value as ModuleAction).credentialSchema === undefined ||
+      isZodSchema((value as ModuleAction).credentialSchema))
+  );
 }
 
 function isDispatchModule(value: unknown): value is DispatchModule {
@@ -23,7 +34,7 @@ function isDispatchModule(value: unknown): value is DispatchModule {
   if (!('name' in value) || typeof value.name !== 'string') return false;
   if (!('version' in value) || typeof value.version !== 'string') return false;
   if (!('actions' in value) || !value.actions || typeof value.actions !== 'object') return false;
-  return Object.values(value.actions).every((action) => isModuleAction(action) && isZodSchema(action.schema));
+  return Object.values(value.actions).every((action) => isModuleAction(action));
 }
 
 function listModuleDirs(baseDir: string): string[] {

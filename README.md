@@ -197,6 +197,42 @@ If a job intentionally relies on shared HTTP context, declare that explicitly in
 - `dependencies.http.required` declares which paths must be present
 - `dispatch job validate` and `dispatch job run` fail early if required HTTP config is missing
 
+### Job-level credential profiles
+
+Jobs can bind named credential profiles without putting plaintext secrets in the case file:
+
+```json
+{
+  "credentials": {
+    "adminQa": {
+      "fromEnv": {
+        "username": "DISPATCH_ADMIN_USERNAME",
+        "password": "DISPATCH_ADMIN_PASSWORD"
+      }
+    }
+  },
+  "scenario": {
+    "steps": [
+      {
+        "id": "login",
+        "action": "admin.login",
+        "credential": "adminQa",
+        "payload": {}
+      }
+    ]
+  }
+}
+```
+
+- `credentials.<name>.fromEnv` maps credential field names to environment variables
+- step `credential` binds one named profile to an action
+- actions read resolved secrets from `ctx.credential`, not from payload
+- `dispatch job validate` fails if a step is missing a required credential binding
+- `dispatch job run` also fails early if required environment variables are missing
+
+If an action expects a credential contract, declare it with `credentialSchema` so `module inspect`
+and `schema action --print` can surface it.
+
 ### Memory and job kinds
 
 Dispatch distinguishes between portable case jobs and memory-mutating seed jobs:
@@ -463,7 +499,7 @@ payments/
 ```
 
 - `dispatch module inspect <name> --json` lists discovered shipped jobs
-- `dispatch schema action --name <module.action> --print` includes both input schema and declared export schema when present
+- `dispatch schema action --name <module.action> --print` includes input, declared exports, and declared credential schema when present
 - `dispatch module validate --path <dir>` validates both handlers and shipped job files
 - Use seed jobs for cache/bootstrap flows that populate memory for later case jobs
 
@@ -516,6 +552,16 @@ dispatch module pack --path ./modules/payments --out payments.dpmod.zip
 dispatch module install --bundle payments.dpmod.zip
 ```
 
+Packed bundles are runtime-focused by default:
+
+- `module.json`
+- the runtime entry subtree (for example `dist/`)
+- `jobs/`
+- `README.md` when present
+
+Authoring files such as `src/`, `tsconfig.json`, and bundler configs are not bundled unless the
+module manifest explicitly adds extra runtime assets under `pack.include`.
+
 ---
 
 ## Local State
@@ -545,4 +591,4 @@ dispatch skill-version   # verify skill is current
 
 - No external telemetry
 - Secrets redacted in run artifacts and command output
-- Use environment variables for sensitive values
+- Use job-level credential profiles backed by environment variables for sensitive values

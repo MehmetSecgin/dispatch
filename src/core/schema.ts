@@ -28,6 +28,14 @@ const StepActionSchema = z
   .regex(/^[a-z0-9-]+\.[a-z0-9-]+$/, 'Action must be namespaced: <module>.<action>');
 
 const StepCaptureSchema = z.record(z.string(), z.string());
+const EnvVarNameSchema = z
+  .string()
+  .min(1)
+  .regex(/^[A-Za-z_][A-Za-z0-9_]*$/, 'Environment variable names must match /^[A-Za-z_][A-Za-z0-9_]*$/');
+
+const CredentialProfileSchema = z.object({
+  fromEnv: z.record(z.string().min(1), EnvVarNameSchema),
+});
 
 const StepSchema = z
   .object({
@@ -37,6 +45,7 @@ const StepSchema = z
     action: StepActionSchema,
     payload: z.record(z.string(), z.unknown()).optional(),
     capture: StepCaptureSchema.optional(),
+    credential: z.string().min(1).optional(),
   })
   .superRefine((v, ctx) => {
     if (v.atRelative && v.atAbsolute) {
@@ -79,6 +88,7 @@ export const JobCaseSchema = z.object({
   schemaVersion: z.number().int().min(1),
   jobType: z.string().min(1),
   http: JobHttpSchema.optional(),
+  credentials: z.record(z.string().min(1), CredentialProfileSchema).optional(),
   dependencies: JobDependenciesSchema.optional(),
   scenario: z.object({
     steps: z.array(StepSchema).min(1),
@@ -90,6 +100,7 @@ export const JobCaseSchema = z.object({
 export type JobCase = z.infer<typeof JobCaseSchema>;
 export type JobStep = z.infer<typeof StepSchema> & { id: string };
 export type JobHttpConfig = z.infer<typeof JobHttpSchema>;
+export type CredentialProfile = z.infer<typeof CredentialProfileSchema>;
 export type JobDependencies = z.infer<typeof JobDependenciesSchema>;
 export type ModuleDependency = z.infer<typeof ModuleDependencySchema>;
 export type MemoryDependency = z.infer<typeof MemoryDependencySchema>;

@@ -6,6 +6,9 @@ Jobs can declare shared base URLs and default headers with the top-level `http` 
 and handlers can still derive explicit child clients via `ctx.http.withDefaults(...)`
 when they need narrower defaults inside a run.
 
+Jobs can also bind env-backed credential profiles so auth actions do not need plaintext
+usernames/passwords in job payloads.
+
 ## What module authors should assume
 
 - Cookies are captured from `Set-Cookie` response headers.
@@ -16,11 +19,53 @@ when they need narrower defaults inside a run.
 
 This means an auth module can be simple:
 
-1. `admin.login` posts credentials.
+1. `admin.login` receives a resolved credential object from `ctx.credential`.
 2. The server returns session cookies.
 3. Later actions such as `admin.me` or `admin.create-user` reuse that session automatically.
 
 No module-level cookie jar or manual cookie plumbing is needed.
+
+Example:
+
+```json
+{
+  "credentials": {
+    "adminQa": {
+      "fromEnv": {
+        "username": "DISPATCH_ADMIN_USERNAME",
+        "password": "DISPATCH_ADMIN_PASSWORD"
+      }
+    }
+  },
+  "scenario": {
+    "steps": [
+      {
+        "id": "login",
+        "action": "admin.login",
+        "credential": "adminQa",
+        "payload": {}
+      }
+    ]
+  }
+}
+```
+
+And the action contract:
+
+```js
+defineAction({
+  description: 'Log in to the admin surface.',
+  schema: z.object({}),
+  credentialSchema: z.object({
+    username: z.string(),
+    password: z.string(),
+  }),
+  handler: async (ctx) => {
+    const credential = ctx.credential;
+    // ...
+  },
+});
+```
 
 For stable request config that is shared across the whole run, declare it in the job:
 
@@ -86,6 +131,7 @@ Avoid:
 
 - reading raw `Set-Cookie` headers in module code
 - saving cookies into `memory`
+- reading ad hoc env vars directly inside handlers when a credential profile would do
 - building manual `Cookie` headers unless there is a very specific non-session need
 - rebuilding the same base URL and shared headers by hand for every request when a scoped
   `ctx.http.withDefaults(...)` client would do
@@ -105,4 +151,5 @@ This is intentionally run-scoped session support, not a full long-lived auth pro
 
 - Cookie values are redacted from curl previews and transport call logs.
 - Request/response body artifact behavior is unchanged.
+- Credential values are resolved at runtime from env-backed profiles and are not part of job payloads.
 - If a workflow needs durable credentials later, that should be a separate explicit auth/profile feature, not `memory`.

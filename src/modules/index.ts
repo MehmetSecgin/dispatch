@@ -33,6 +33,7 @@ export function moduleInfo(def: ModuleDefinition) {
       key: `${def.name}.${name}`,
       description: a.description ?? null,
       exportsSchema: schemaToJsonSchema(a.exportsSchema),
+      credentialSchema: schemaToJsonSchema(a.credentialSchema),
     })),
   };
 }

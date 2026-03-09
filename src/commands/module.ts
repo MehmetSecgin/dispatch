@@ -4,7 +4,7 @@ import path from 'node:path';
 import { Command } from 'commander';
 import { loadModuleRegistry, moduleInfo, hashDirectory } from '../modules/index.js';
 import { loadModuleFromDir, loadModules } from '../modules/loader.js';
-import { ModuleManifestSchema } from '../modules/manifest.js';
+import { ModuleManifest, ModuleManifestSchema } from '../modules/manifest.js';
 import { ModuleRegistry } from '../modules/registry.js';
 import { schemaToJsonSchema } from '../modules/schema-contracts.js';
 import { readJson, requireFile } from '../utils/fs-json.js';
@@ -21,6 +21,7 @@ import { cliErrorFromCode, exitCodeForCliError, jsonErrorEnvelope } from '../cor
 import { JobCaseSchema } from '../core/schema.js';
 import { validateJobCase } from '../job/validator.js';
 import { inspectHttpDependencies, summarizeDeclaredHttpDependencies, summarizeDeclaredMemoryDependencies } from '../job/dependencies.js';
+import { inspectJobCredentials } from '../job/credentials.js';
 import { loadActionDefaults } from '../execution/action-defaults.js';
 
 function findZipBinary(): string {
@@ -59,10 +60,17 @@ function renderJobWithDependencies(job: { kind: 'seed' | 'case'; id: string; pat
   ];
 }
 
-function formatActionLine(action: { key: string; description: string | null; exportsSchema: Record<string, unknown> | null }): string[] {
+function formatActionLine(action: {
+  key: string;
+  description: string | null;
+  exportsSchema: Record<string, unknown> | null;
+  credentialSchema: Record<string, unknown> | null;
+}): string[] {
   const lines = [`  - ${action.key}${action.description ? ` - ${action.description}` : ''}`];
   const exportsSummary = summarizeSchemaPropertiesFromJson(action.exportsSchema);
   if (exportsSummary) lines.push(`      exports: ${exportsSummary}`);
+  const credentialSummary = summarizeSchemaPropertiesFromJson(action.credentialSchema);
+  if (credentialSummary) lines.push(`      credentials: ${credentialSummary}`);
   return lines;
 }
 
@@ -80,6 +88,106 @@ function summarizeSchemaPropertiesFromJson(jsonSchema: Record<string, unknown> |
       return `${key}:${type}`;
     })
     .join(', ');
+}
+
+function normalizeModuleRelativePath(input: string): string {
+  return input.replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/^\/+/, '');
+}
+
+function ensureModuleSubpath(moduleDir: string, relPath: string): string {
+  const normalized = normalizeModuleRelativePath(relPath);
+  const fullPath = path.resolve(moduleDir, normalized);
+  const relative = path.relative(moduleDir, fullPath);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new Error(`Pack path must stay inside the module directory: ${relPath}`);
+  }
+  return fullPath;
+}
+
+function collectFilesRecursively(root: string, currentDir: string, out: Set<string>): void {
+  for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
+    const fullPath = path.join(currentDir, entry.name);
+    if (entry.isDirectory()) {
+      collectFilesRecursively(root, fullPath, out);
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    out.add(normalizeModuleRelativePath(path.relative(root, fullPath)));
+  }
+}
+
+function addModulePath(root: string, relPath: string, out: Set<string>): void {
+  const fullPath = ensureModuleSubpath(root, relPath);
+  if (!fs.existsSync(fullPath)) throw new Error(`Pack include path does not exist: ${relPath}`);
+  const stat = fs.statSync(fullPath);
+  if (stat.isDirectory()) {
+    collectFilesRecursively(root, fullPath, out);
+    return;
+  }
+  if (stat.isFile()) {
+    out.add(normalizeModuleRelativePath(path.relative(root, fullPath)));
+    return;
+  }
+  throw new Error(`Unsupported pack path type: ${relPath}`);
+}
+
+function includedPackFiles(moduleDir: string, manifest: ModuleManifest): string[] {
+  const out = new Set<string>();
+  out.add('module.json');
+
+  const entry = normalizeModuleRelativePath(manifest.entry || 'index.mjs');
+  const entryDir = path.posix.dirname(entry);
+  if (entryDir === '.') addModulePath(moduleDir, entry, out);
+  else addModulePath(moduleDir, entryDir, out);
+
+  const jobsDir = path.join(moduleDir, 'jobs');
+  if (fs.existsSync(jobsDir) && fs.statSync(jobsDir).isDirectory()) addModulePath(moduleDir, 'jobs', out);
+
+  const readmePath = path.join(moduleDir, 'README.md');
+  if (fs.existsSync(readmePath) && fs.statSync(readmePath).isFile()) addModulePath(moduleDir, 'README.md', out);
+
+  for (const pattern of manifest.pack?.include ?? []) {
+    const normalized = normalizeModuleRelativePath(pattern);
+    if (normalized.includes('*') && !normalized.endsWith('/**')) {
+      throw new Error(`Unsupported pack include pattern '${pattern}'. Use a file path, directory path, or dir/**.`);
+    }
+    const target = normalized.endsWith('/**') ? normalized.slice(0, -3) : normalized;
+    addModulePath(moduleDir, target, out);
+  }
+
+  return Array.from(out).sort((a, b) => a.localeCompare(b));
+}
+
+function stageModuleBundle(moduleDir: string, stagingDir: string, manifest: ModuleManifest): void {
+  for (const relPath of includedPackFiles(moduleDir, manifest)) {
+    const src = path.join(moduleDir, relPath);
+    const dst = path.join(stagingDir, relPath);
+    fs.mkdirSync(path.dirname(dst), { recursive: true });
+    fs.copyFileSync(src, dst);
+  }
+}
+
+function basicInstalledModuleValidation(moduleDir: string): ModuleManifest {
+  const manifestPath = path.join(moduleDir, 'module.json');
+  if (!fs.existsSync(manifestPath)) throw new Error('Bundle missing module.json at root');
+  const manifest = ModuleManifestSchema.parse(readJson(manifestPath));
+  const entryPath = ensureModuleSubpath(moduleDir, manifest.entry || 'index.mjs');
+  if (!fs.existsSync(entryPath) || !fs.statSync(entryPath).isFile()) {
+    throw new Error(`Bundle entry file missing: ${manifest.entry || 'index.mjs'}`);
+  }
+  return manifest;
+}
+
+function cleanupStaleInstallDirs(targetRoot: string): void {
+  for (const entry of fs.readdirSync(targetRoot)) {
+    if (!entry.startsWith('.tmp-install-') && !entry.startsWith('.tmp-backup-')) continue;
+    fs.rmSync(path.join(targetRoot, entry), { recursive: true, force: true });
+  }
+}
+
+function uniqueInstallPath(targetRoot: string, prefix: string): string {
+  const suffix = `${Date.now()}-${process.pid}-${Math.random().toString(16).slice(2, 8)}`;
+  return path.join(targetRoot, `${prefix}${suffix}`);
 }
 
 export function registerModuleCommands(program: Command): void {
@@ -185,6 +293,7 @@ export function registerModuleCommands(program: Command): void {
           description: action.description ?? null,
           schema: schemaToJsonSchema(action.schema),
           exportsSchema: schemaToJsonSchema(action.exportsSchema),
+          credentialSchema: schemaToJsonSchema(action.credentialSchema),
         })),
       };
       const hash = mod.sourcePath.startsWith('builtin:') ? undefined : hashDirectory(mod.sourcePath);
@@ -260,6 +369,7 @@ export function registerModuleCommands(program: Command): void {
           jobKind: inferJobFileKind(job.path),
         });
         const httpDependencyCheck = inspectHttpDependencies(parsedJob.data);
+        const credentialCheck = inspectJobCredentials(parsedJob.data, registry);
         return [
           ...validated.issues.map((issue) => ({
             jobId: job.id,
@@ -271,6 +381,12 @@ export function registerModuleCommands(program: Command): void {
             jobId: job.id,
             kind: job.kind,
             path: `${job.id}:http.${issue.httpPath || '<root>'}`,
+            message: issue.message,
+          })),
+          ...credentialCheck.issues.map((issue) => ({
+            jobId: job.id,
+            kind: job.kind,
+            path: `${job.id}:${issue.path || '<root>'}`,
             message: issue.message,
           })),
         ];
@@ -368,13 +484,23 @@ export function registerModuleCommands(program: Command): void {
       const renderer = createRenderer({});
       const moduleDir = path.resolve(cmd.path);
       const outPath = path.resolve(cmd.out);
+      const manifestPath = path.join(moduleDir, 'module.json');
+      if (!fs.existsSync(manifestPath)) throw new Error(`Missing module.json at ${manifestPath}`);
+      const manifest = ModuleManifestSchema.parse(readJson(manifestPath));
       fs.mkdirSync(path.dirname(outPath), { recursive: true });
+      const stagingDir = fs.mkdtempSync(path.join(path.dirname(outPath), '.dispatch-pack-'));
       const zip = findZipBinary();
-      if (zip === 'zip') {
-        const r = spawnSync('zip', ['-rq', outPath, '.'], { cwd: moduleDir, encoding: 'utf8' });
-        if (r.status !== 0) throw new Error(`zip failed: ${r.stderr || r.stdout}`);
-      } else {
-        throw new Error('zip packaging not supported on this platform in current build');
+      try {
+        stageModuleBundle(moduleDir, stagingDir, manifest);
+        fs.rmSync(outPath, { force: true });
+        if (zip === 'zip') {
+          const r = spawnSync('zip', ['-rq', outPath, '.'], { cwd: stagingDir, encoding: 'utf8' });
+          if (r.status !== 0) throw new Error(`zip failed: ${r.stderr || r.stdout}`);
+        } else {
+          throw new Error('zip packaging not supported on this platform in current build');
+        }
+      } finally {
+        fs.rmSync(stagingDir, { recursive: true, force: true });
       }
       renderer.line(`✓ Packed ${shortenHomePath(outPath)}`);
     });
@@ -389,24 +515,60 @@ export function registerModuleCommands(program: Command): void {
       requireFile(bundle, 'bundle');
       const targetRoot = defaultUserModulesDir();
       fs.mkdirSync(targetRoot, { recursive: true });
-      const tmp = path.join(targetRoot, `.tmp-install-${Date.now()}`);
-      fs.mkdirSync(tmp, { recursive: true });
-
-      const unzip = findUnzipBinary();
-      if (unzip === 'unzip') {
-        const r = spawnSync('unzip', ['-q', '-o', bundle, '-d', tmp], { encoding: 'utf8' });
-        if (r.status !== 0) throw new Error(`unzip failed: ${r.stderr || r.stdout}`);
-      } else {
-        throw new Error('unzip install not supported on this platform in current build');
+      const lockDir = path.join(targetRoot, '.install.lock');
+      try {
+        fs.mkdirSync(lockDir);
+      } catch {
+        throw new Error('Another module install is already in progress');
       }
+      try {
+        cleanupStaleInstallDirs(targetRoot);
+        const tmp = fs.mkdtempSync(path.join(targetRoot, '.tmp-install-'));
+        let installDir: string | null = null;
+        let backupDir: string | null = null;
 
-      const manifestPath = path.join(tmp, 'module.json');
-      if (!fs.existsSync(manifestPath)) throw new Error('Bundle missing module.json at root');
-      const manifest = ModuleManifestSchema.parse(readJson(manifestPath));
-      const installDir = path.join(targetRoot, `${manifest.name}@${manifest.version}`);
-      fs.rmSync(installDir, { recursive: true, force: true });
-      fs.renameSync(tmp, installDir);
-      renderer.line(`✓ Installed ${manifest.name}@${manifest.version} -> ${shortenHomePath(installDir)}`);
+        const unzip = findUnzipBinary();
+        if (unzip === 'unzip') {
+          const r = spawnSync('unzip', ['-q', '-o', bundle, '-d', tmp], { encoding: 'utf8' });
+          if (r.status !== 0) throw new Error(`unzip failed: ${r.stderr || r.stdout}`);
+        } else {
+          throw new Error('unzip install not supported on this platform in current build');
+        }
+
+        const manifest = basicInstalledModuleValidation(tmp);
+        installDir = path.join(targetRoot, `${manifest.name}@${manifest.version}`);
+
+        if (fs.existsSync(installDir)) {
+          backupDir = uniqueInstallPath(targetRoot, '.tmp-backup-');
+          fs.renameSync(installDir, backupDir);
+        }
+
+        try {
+          fs.renameSync(tmp, installDir);
+        } catch (err) {
+          if (backupDir && fs.existsSync(backupDir) && !fs.existsSync(installDir)) {
+            fs.renameSync(backupDir, installDir);
+            backupDir = null;
+          }
+          throw err;
+        }
+
+        if (backupDir) {
+          fs.rmSync(backupDir, { recursive: true, force: true });
+          backupDir = null;
+        }
+
+        renderer.line(`✓ Installed ${manifest.name}@${manifest.version} -> ${shortenHomePath(installDir)}`);
+        fs.rmSync(tmp, { recursive: true, force: true });
+      } catch (err) {
+        throw err;
+      } finally {
+        for (const entry of fs.readdirSync(targetRoot)) {
+          if (!entry.startsWith('.tmp-install-') && !entry.startsWith('.tmp-backup-')) continue;
+          fs.rmSync(path.join(targetRoot, entry), { recursive: true, force: true });
+        }
+        fs.rmSync(lockDir, { recursive: true, force: true });
+      }
     });
 
   moduleCmd

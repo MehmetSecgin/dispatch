@@ -48,6 +48,7 @@ import {
   summarizeDeclaredMemoryDependencies,
   type DependencyIssue,
 } from '../job/dependencies.js';
+import { inspectJobCredentials } from '../job/credentials.js';
 import { cliErrorFromCode, exitCodeForCliError, jsonErrorEnvelope } from '../core/errors.js';
 import { nextActionsForJobAssert, nextActionsForJobRun, nextActionsForRunMany } from '../job/next-actions.js';
 
@@ -117,6 +118,10 @@ function formatDeclaredHttpDependency(input: { path: string }): string {
   return `http.${input.path}`;
 }
 
+function formatCredentialIssue(issue: { path: string; message: string }): string {
+  return issue.path ? `${issue.path}: ${issue.message}` : issue.message;
+}
+
 export function registerJobCommands(
   program: Command,
   deps: {
@@ -139,6 +144,7 @@ export function registerJobCommands(
       const validation = validateJobCase(jc, registry, loadActionDefaults(), {
         jobKind: inferJobFileKind(casePath),
       });
+      const credentialCheck = inspectJobCredentials(jc, registry, { requireEnv: true });
       if (!validation.valid) {
         const details = {
           casePath,
@@ -157,6 +163,22 @@ export function registerJobCommands(
           ],
         });
         process.exitCode = exitCodeForCliError(cliErrorFromCode('USAGE_ERROR', 'job case validation failed'));
+        return;
+      }
+      if (!credentialCheck.valid) {
+        const details = {
+          casePath,
+          issues: credentialCheck.issues,
+          warnings: [...warnings, ...validation.warnings],
+        };
+        renderer.render({
+          json: jsonErrorEnvelope(cliErrorFromCode('USAGE_ERROR', 'job credential preflight failed', details)),
+          human: [
+            `✗ Missing credentials for ${userPathDisplay(String(cmd.case))}`,
+            ...credentialCheck.issues.map((issue) => `- [${issue.stepId}] ${formatCredentialIssue(issue)}`),
+          ],
+        });
+        process.exitCode = exitCodeForCliError(cliErrorFromCode('USAGE_ERROR', 'job credential preflight failed'));
         return;
       }
 
@@ -253,10 +275,18 @@ export function registerJobCommands(
       const validation = validateJobCase(jc, registry, loadActionDefaults(), {
         jobKind: inferJobFileKind(casePath),
       });
+      const credentialCheck = inspectJobCredentials(jc, registry, { requireEnv: true });
       if (!validation.valid) {
         const first = validation.issues[0];
         throw new Error(
           `Validation failed for ${userPathDisplay(cmd.case)}: ` +
+            `${first.path ? `${first.path}: ` : ''}${first.message}`,
+        );
+      }
+      if (!credentialCheck.valid) {
+        const first = credentialCheck.issues[0];
+        throw new Error(
+          `Credential preflight failed for ${userPathDisplay(cmd.case)}: ` +
             `${first.path ? `${first.path}: ` : ''}${first.message}`,
         );
       }
@@ -863,13 +893,14 @@ export function registerJobCommands(
       const result = validateJobCase(parsed.data, registry, loadActionDefaults(), {
         jobKind: inferJobFileKind(casePath),
       });
+      const credentialCheck = inspectJobCredentials(parsed.data, registry);
       const dependencyCheck = inspectJobDependencies(parsed.data, {
         registry,
         configDir: defaultRuntime(deps.cliVersion).configDir,
       });
       const declaredHttpDeps = summarizeDeclaredHttpDependencies(parsed.data);
       const declaredMemoryDeps = summarizeDeclaredMemoryDependencies(parsed.data);
-      const valid = result.valid && dependencyCheck.valid;
+      const valid = result.valid && credentialCheck.valid && dependencyCheck.valid;
       if (!!opts.json) {
         if (valid) {
           renderer.jsonOut({ valid: true, casePath, warnings: [...warnings, ...result.warnings] });
@@ -879,6 +910,7 @@ export function registerJobCommands(
               cliErrorFromCode('USAGE_ERROR', 'job case validation failed', {
                 casePath,
                 issues: result.issues,
+                credentialIssues: credentialCheck.issues,
                 dependencyIssues: dependencyCheck.issues,
                 warnings: [...warnings, ...result.warnings],
               }),
@@ -913,6 +945,7 @@ export function registerJobCommands(
               const p = issue.path ? `${issue.path}: ` : '';
               return `- ${step}${p}${issue.message}`;
             }),
+            ...credentialCheck.issues.map((issue) => `- [${issue.stepId}] ${formatCredentialIssue(issue)}`),
             ...dependencyCheck.issues.map((issue) => `- ${formatDependencyIssue(issue)}`),
             ...formatNextActionsHuman(dependencyCheck.next, { color: isColorEnabled(opts) }),
           ],

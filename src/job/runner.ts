@@ -18,6 +18,7 @@ import { HttpPoolRegistry } from '../services/http-pool.js';
 import { Listr } from 'listr2';
 import { paint, Renderer, shortenHomePath } from '../output/renderer.js';
 import { NextAction, nextActionsForJobRun } from './next-actions.js';
+import { resolveStepCredential } from './credentials.js';
 
 const debug = debugNs('job-runner');
 
@@ -149,6 +150,7 @@ export async function executeJobCase(
         artifacts,
         runtime,
         step,
+        credential: resolveStepCredential(job, step, resolved),
         resolve: (actionKey: string) => registry.resolve(actionKey),
         progress: onProgress,
       },
