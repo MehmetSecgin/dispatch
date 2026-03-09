@@ -8,6 +8,9 @@ The runtime entry should default-export the full module object, typically using 
 
 External modules may be authored directly in `.mjs`, but a TS-authored module compiled to a built JS entry is also a first-class pattern. In that case, `module.json.entry` should point at the built file.
 
+Packed bundles are runtime-focused by default. If a module needs extra runtime assets beyond its entry subtree, shipped jobs,
+and optional `README.md`, declare them explicitly in `module.json.pack.include`.
+
 Reference example:
 
 - [`modules/jsonplaceholder`](../../modules/jsonplaceholder)
@@ -27,7 +30,7 @@ mymodule/
   schemas.mjs
 ```
 
-- `module.json` points at the runtime entry.
+- `module.json` points at the runtime entry and can declare `pack.include` for extra runtime assets.
 - `index.mjs` contains the module's action wiring and default module export.
 - `schemas.mjs` contains all module schemas.
 
@@ -77,6 +80,7 @@ mymodule/
 - Prefer relative HTTP paths in handlers when the job should supply shared API context through the top-level `http` block.
 - If a module has login/session behavior, let `ctx.http` own the cookie session for the current run instead of saving cookies in module state or `memory`.
 - If a module repeatedly calls the same API in one action or helper, derive a scoped client with `ctx.http.withDefaults(...)` instead of manually rebuilding the same base URL and shared headers on every request.
+- If an action needs secrets, declare them with `credentialSchema` and let the job bind a credential profile; do not invent module-specific env var conventions inside the handler.
 - If an action generates a same-run workflow value that later steps need, return it in `exports` rather than inventing a fake response field or writing to durable memory.
 - If those exports are part of the intended action contract, declare them with `exportsSchema` so `module inspect` and `schema action` can surface them.
 - If a job wants stable workflow-level names, let the job capture selected export values into `run.*` instead of hard-coding later steps to module-specific export keys.

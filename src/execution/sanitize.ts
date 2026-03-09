@@ -5,6 +5,11 @@ const SENSITIVE_KEYS = new Set([
   'token',
   'cookie',
   'authorization',
+  'apikey',
+  'api-key',
+  'clientsecret',
+  'client-secret',
+  'secret',
 ]);
 
 export function sanitizeValue(value: unknown): unknown {

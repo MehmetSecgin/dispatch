@@ -13,10 +13,14 @@ const ZOD_IMPORT = JSON.stringify(pathToFileURL(path.join(REPO_ROOT, 'node_modul
 const HTTP_FIXTURE_MODULE_NAME = `zz-job-http-fixture-${process.pid}`;
 const HTTP_FIXTURE_MODULE_DIR = path.join(REPO_ROOT, 'modules', HTTP_FIXTURE_MODULE_NAME);
 
-function runCli(args: string[]) {
+function runCli(args: string[], env?: NodeJS.ProcessEnv) {
   const out = spawnSync(process.execPath, ['--import', 'tsx', 'src/cli.ts', '--json', ...args], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
+    env: {
+      ...process.env,
+      ...env,
+    },
   });
 
   const stdout = out.stdout.trim();
@@ -150,6 +154,268 @@ describe('job CLI', () => {
     expect(result.json).toEqual(expect.objectContaining({
       status: 'SUCCESS',
       runDir: expect.any(String),
+    }));
+  });
+
+  it('resolves env-backed credential profiles into ctx.credential without putting secrets in the job payload', () => {
+    fs.mkdirSync(HTTP_FIXTURE_MODULE_DIR, { recursive: true });
+    fs.writeFileSync(
+      path.join(HTTP_FIXTURE_MODULE_DIR, 'module.json'),
+      `${JSON.stringify(
+        {
+          name: HTTP_FIXTURE_MODULE_NAME,
+          version: '1.0.0',
+          entry: 'index.mjs',
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(HTTP_FIXTURE_MODULE_DIR, 'index.mjs'),
+      [
+        `import { defineAction, defineModule } from ${SDK_IMPORT};`,
+        `import { z } from ${ZOD_IMPORT};`,
+        '',
+        'async function login(ctx) {',
+        "  if (!ctx.credential || typeof ctx.credential !== 'object') throw new Error('missing credential');",
+        "  const credential = ctx.credential;",
+        "  if (credential.username !== 'demo-user' || credential.password !== 'demo-pass') throw new Error('unexpected credential');",
+        "  return { response: { username: credential.username }, detail: 'logged in with credential profile' };",
+        '}',
+        '',
+        'export default defineModule({',
+        `  name: '${HTTP_FIXTURE_MODULE_NAME}',`,
+        "  version: '1.0.0',",
+        '  actions: {',
+        "    login: defineAction({",
+        "      description: 'Log in with a credential profile.',",
+        '      schema: z.object({}),',
+        "      credentialSchema: z.object({ username: z.string().min(1), password: z.string().min(1) }),",
+        '      handler: login,',
+        '    }),',
+        '  },',
+        '});',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const casePath = path.join(HTTP_FIXTURE_MODULE_DIR, 'credential-profile.job.case.json');
+    fs.writeFileSync(
+      casePath,
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          jobType: 'credential-profile',
+          credentials: {
+            adminQa: {
+              fromEnv: {
+                username: 'DISPATCH_ADMIN_USERNAME',
+                password: 'DISPATCH_ADMIN_PASSWORD',
+              },
+            },
+          },
+          scenario: {
+            steps: [
+              {
+                id: 'login',
+                action: `${HTTP_FIXTURE_MODULE_NAME}.login`,
+                credential: 'adminQa',
+                payload: {},
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+
+    const result = runCli(['job', 'run', '--case', path.relative(REPO_ROOT, casePath)], {
+      DISPATCH_ADMIN_USERNAME: 'demo-user',
+      DISPATCH_ADMIN_PASSWORD: 'demo-pass',
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.json).toEqual(expect.objectContaining({
+      status: 'SUCCESS',
+      runDir: expect.any(String),
+    }));
+
+    const inputCase = JSON.parse(fs.readFileSync(path.join(result.json?.runDir, 'job.case.input.json'), 'utf8'));
+    expect(inputCase.credentials.adminQa.fromEnv).toEqual({
+      username: 'DISPATCH_ADMIN_USERNAME',
+      password: '[REDACTED]',
+    });
+  });
+
+  it('fails job run preflight when required credential env vars are missing', () => {
+    fs.mkdirSync(HTTP_FIXTURE_MODULE_DIR, { recursive: true });
+    fs.writeFileSync(
+      path.join(HTTP_FIXTURE_MODULE_DIR, 'module.json'),
+      `${JSON.stringify(
+        {
+          name: HTTP_FIXTURE_MODULE_NAME,
+          version: '1.0.0',
+          entry: 'index.mjs',
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(HTTP_FIXTURE_MODULE_DIR, 'index.mjs'),
+      [
+        `import { defineAction, defineModule } from ${SDK_IMPORT};`,
+        `import { z } from ${ZOD_IMPORT};`,
+        '',
+        'export default defineModule({',
+        `  name: '${HTTP_FIXTURE_MODULE_NAME}',`,
+        "  version: '1.0.0',",
+        '  actions: {',
+        "    login: defineAction({",
+        "      description: 'Log in with a credential profile.',",
+        '      schema: z.object({}),',
+        "      credentialSchema: z.object({ username: z.string().min(1), password: z.string().min(1) }),",
+        "      handler: async () => ({ response: { ok: true } }),",
+        '    }),',
+        '  },',
+        '});',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const casePath = path.join(HTTP_FIXTURE_MODULE_DIR, 'missing-credential-env.job.case.json');
+    fs.writeFileSync(
+      casePath,
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          jobType: 'missing-credential-env',
+          credentials: {
+            adminQa: {
+              fromEnv: {
+                username: 'DISPATCH_ADMIN_USERNAME',
+                password: 'DISPATCH_ADMIN_PASSWORD',
+              },
+            },
+          },
+          scenario: {
+            steps: [
+              {
+                id: 'login',
+                action: `${HTTP_FIXTURE_MODULE_NAME}.login`,
+                credential: 'adminQa',
+                payload: {},
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+
+    const result = runCli(['job', 'run', '--case', path.relative(REPO_ROOT, casePath)], {
+      DISPATCH_ADMIN_USERNAME: 'demo-user',
+    });
+
+    expect(result.status).toBe(2);
+    expect(result.json).toEqual(expect.objectContaining({
+      status: 'error',
+      code: 'USAGE_ERROR',
+      message: 'job credential preflight failed',
+      details: expect.objectContaining({
+        issues: expect.arrayContaining([
+          expect.objectContaining({
+            message: expect.stringContaining("Missing required environment variable 'DISPATCH_ADMIN_PASSWORD'"),
+          }),
+        ]),
+      }),
+    }));
+  });
+
+  it('fails job validate when an action requires a credential profile but the job does not bind one', () => {
+    fs.mkdirSync(HTTP_FIXTURE_MODULE_DIR, { recursive: true });
+    fs.writeFileSync(
+      path.join(HTTP_FIXTURE_MODULE_DIR, 'module.json'),
+      `${JSON.stringify(
+        {
+          name: HTTP_FIXTURE_MODULE_NAME,
+          version: '1.0.0',
+          entry: 'index.mjs',
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(HTTP_FIXTURE_MODULE_DIR, 'index.mjs'),
+      [
+        `import { defineAction, defineModule } from ${SDK_IMPORT};`,
+        `import { z } from ${ZOD_IMPORT};`,
+        '',
+        'export default defineModule({',
+        `  name: '${HTTP_FIXTURE_MODULE_NAME}',`,
+        "  version: '1.0.0',",
+        '  actions: {',
+        "    login: defineAction({",
+        "      description: 'Log in with a credential profile.',",
+        '      schema: z.object({}),',
+        "      credentialSchema: z.object({ username: z.string().min(1), password: z.string().min(1) }),",
+        "      handler: async () => ({ response: { ok: true } }),",
+        '    }),',
+        '  },',
+        '});',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const casePath = path.join(HTTP_FIXTURE_MODULE_DIR, 'missing-credential-binding.job.case.json');
+    fs.writeFileSync(
+      casePath,
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          jobType: 'missing-credential-binding',
+          scenario: {
+            steps: [
+              {
+                id: 'login',
+                action: `${HTTP_FIXTURE_MODULE_NAME}.login`,
+                payload: {},
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+
+    const result = runCli(['job', 'validate', '--case', path.relative(REPO_ROOT, casePath)]);
+
+    expect(result.status).toBe(2);
+    expect(result.json).toEqual(expect.objectContaining({
+      status: 'error',
+      code: 'USAGE_ERROR',
+      message: 'job case validation failed',
+      details: expect.objectContaining({
+        credentialIssues: expect.arrayContaining([
+          expect.objectContaining({
+            message: expect.stringContaining('requires a credential profile'),
+          }),
+        ]),
+      }),
     }));
   });
 

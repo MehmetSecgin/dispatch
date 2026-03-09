@@ -37,6 +37,7 @@ export interface ModuleAction<T = unknown> {
   description: string;
   schema: z.ZodSchema<T>;
   exportsSchema?: z.ZodSchema;
+  credentialSchema?: z.ZodSchema;
   handler: ActionHandler<T>;
 }
 
@@ -49,6 +50,7 @@ export function defineAction<T>(opts: {
   description: string;
   schema: z.ZodSchema<T>;
   exportsSchema?: z.ZodSchema;
+  credentialSchema?: z.ZodSchema;
   handler: (ctx: ActionContext, payload: T) => Promise<ActionResult>;
 }): ModuleAction<T> {
   return opts;
@@ -60,6 +62,7 @@ export interface ActionContext {
   artifacts: RunArtifacts;
   runtime: RuntimeContext;
   step: JobStep;
+  credential?: unknown;
   resolve: (actionKey: string) => ResolvedAction | null;
   progress?: (message: string) => void;
 }
