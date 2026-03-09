@@ -27,6 +27,9 @@ Generic orchestration primitives.
 {
   "schemaVersion": 1,
   "jobType": "jsonplaceholder-poll",
+  "http": {
+    "baseUrl": "https://jsonplaceholder.typicode.com"
+  },
   "scenario": {
     "steps": [
       {

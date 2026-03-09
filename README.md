@@ -122,6 +122,26 @@ A job case is a portable JSON file — shareable, versionable, replayable.
 - Interpolation uses `${step.<id>.response.<field>}` or `${jsonpath(step:<id>, <path>)}`
 - Same-run values should flow through `step.*` or `run.*`, not persistent memory
 
+### Job-level HTTP defaults
+
+Jobs can declare shared request context once at the top level:
+
+```json
+{
+  "http": {
+    "baseUrl": "https://api.example.com",
+    "defaultHeaders": {
+      "x-client": "dispatch"
+    }
+  }
+}
+```
+
+- `http.baseUrl` configures the root `ctx.http` transport for the whole run
+- `http.defaultHeaders` applies to all requests in the run unless a handler narrows or overrides them
+- Cookies/session continuity still live in the shared run transport
+- Handlers can still derive narrower clients with `ctx.http.withDefaults(...)`
+
 ### Memory and job kinds
 
 Dispatch distinguishes between portable case jobs and memory-mutating seed jobs:
@@ -391,6 +411,10 @@ payments/
 
 The repository ships a public example module under [`modules/jsonplaceholder`](/Users/mehmetsecgin/dispatch/modules/jsonplaceholder).
 
+Its shipped jobs now demonstrate the intended pattern: each job declares
+`http.baseUrl`, and the module actions use relative HTTP paths through the shared run
+transport.
+
 Useful commands:
 
 ```bash
@@ -418,6 +442,7 @@ Example shipped jobs:
 
 Cookie-backed auth flows are handled by `ctx.http`, not by module-specific storage.
 
+- use the top-level job `http` block for shared base URLs and default headers
 - a login action can establish a session with `Set-Cookie`
 - later actions in the same run automatically reuse the session
 - cookies are run-scoped only and are not persisted in `memory`

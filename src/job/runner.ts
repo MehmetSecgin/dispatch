@@ -1,12 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { RunArtifacts } from '../artifacts/run-artifacts.js';
-import type { JsonObject } from '../core/json.js';
+import { isJsonObject, type JsonObject } from '../core/json.js';
 import { loadModuleRegistry } from '../modules/index.js';
 import { buildResolutionRow } from '../modules/conflicts.js';
 import { HttpTransport } from '../transport/http.js';
 import { interpolateAny, RuntimeContext } from '../execution/interpolation.js';
-import { JobCase, normalizeSteps } from '../core/schema.js';
+import { JobCase, JobHttpConfig, normalizeSteps } from '../core/schema.js';
 import { defaultRuntime } from '../data/run-data.js';
 import { nowIso, parseDurationMs, sleep } from '../core/time.js';
 import { sanitizeValue } from '../execution/sanitize.js';
@@ -57,15 +57,16 @@ export async function executeJobCase(
 ): Promise<JobRunSummary> {
   debug('execute start jobType=%s json=%s verbose=%s label=%s', job.jobType, opts.json, !!opts.verbose, opts.label);
   const artifacts = new RunArtifacts(opts.label);
-  const http = new HttpTransport(artifacts, {
-    verboseArtifacts: !!opts.verbose,
-    poolRegistry: opts.poolRegistry,
-  });
-
   const runtime: RuntimeContext = defaultRuntime(opts.cliVersion, {
     overrides: opts.runtimeOverrides,
   });
   runtime.run.startedAt = nowIso();
+  const resolvedHttp = resolveJobHttpConfig(job.http, runtime);
+  const http = new HttpTransport(artifacts, {
+    ...resolvedHttp,
+    verboseArtifacts: !!opts.verbose,
+    poolRegistry: opts.poolRegistry,
+  });
 
   writeJson(path.join(artifacts.runDir, 'meta.json'), {
     cliVersion: opts.cliVersion,
@@ -236,6 +237,7 @@ export async function executeJobCase(
     }
 
     const resolvedCase = interpolateAny(job, runtime);
+    if (resolvedHttp && isJsonObject(resolvedCase)) resolvedCase.http = resolvedHttp;
     writeJson(path.join(artifacts.runDir, 'job.case.resolved.json'), sanitizeValue(resolvedCase));
   } catch (err) {
     executionError = err instanceof Error ? err : new Error(String(err));
@@ -329,6 +331,36 @@ function singleLineProgress(input: string): string {
   const max = Math.max(30, cols - 22);
   if (clean.length <= max) return clean;
   return `${clean.slice(0, max - 1)}…`;
+}
+
+function resolveJobHttpConfig(httpConfig: JobHttpConfig | undefined, runtime: RuntimeContext): JobHttpConfig | undefined {
+  if (!httpConfig) return undefined;
+  const resolved = interpolateAny(httpConfig, runtime);
+  if (!isJsonObject(resolved)) throw new Error('Job http config must resolve to an object');
+
+  const out: JobHttpConfig = {};
+  if (resolved.baseUrl !== undefined) {
+    if (typeof resolved.baseUrl !== 'string' || resolved.baseUrl.trim().length === 0) {
+      throw new Error('Job http.baseUrl must resolve to a non-empty string');
+    }
+    out.baseUrl = resolved.baseUrl;
+  }
+
+  if (resolved.defaultHeaders !== undefined) {
+    if (!isJsonObject(resolved.defaultHeaders)) {
+      throw new Error('Job http.defaultHeaders must resolve to an object');
+    }
+    const defaultHeaders: Record<string, string> = {};
+    for (const [name, value] of Object.entries(resolved.defaultHeaders)) {
+      if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') {
+        throw new Error(`Job http.defaultHeaders.${name} must resolve to a string-compatible scalar`);
+      }
+      defaultHeaders[name] = String(value);
+    }
+    out.defaultHeaders = defaultHeaders;
+  }
+
+  return out;
 }
 
 export function findRunDirById(runId: string, runOutputDir: string): string {

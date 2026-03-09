@@ -1,6 +1,9 @@
 {
   "schemaVersion": 1,
   "jobType": "jsonplaceholder-from-memory",
+  "http": {
+    "baseUrl": "https://jsonplaceholder.typicode.com"
+  },
   "dependencies": {
     "memory": [
       {
