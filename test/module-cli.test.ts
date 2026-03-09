@@ -46,6 +46,30 @@ afterEach(() => {
 });
 
 describe('module CLI', () => {
+  it('lets plain node import the repo jsonplaceholder module entry', () => {
+    const moduleEntry = pathToFileURL(path.join(REPO_ROOT, 'modules', 'jsonplaceholder', 'index.mjs')).href;
+    const out = spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `import(${JSON.stringify(moduleEntry)}).then((m) => {
+          console.log(m.default?.name ?? '');
+        }).catch((err) => {
+          console.error(err);
+          process.exit(1);
+        });`,
+      ],
+      {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+      },
+    );
+
+    expect(out.status).toBe(0);
+    expect(out.stdout.trim()).toBe('jsonplaceholder');
+  });
+
   it('omits the duplicate top-level actions array from module list JSON', () => {
     const result = runCli(['module', 'list']);
 

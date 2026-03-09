@@ -10,7 +10,7 @@ External modules may be authored directly in `.mjs`, but a TS-authored module co
 
 Reference example:
 
-- [`modules/jsonplaceholder`](/Users/mehmetsecgin/dispatch/modules/jsonplaceholder)
+- [`modules/jsonplaceholder`](../../modules/jsonplaceholder)
   A public repo module showing action definitions, schemas, case jobs, and a seed job.
 
 Related guidance:
