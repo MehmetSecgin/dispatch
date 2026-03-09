@@ -5,6 +5,7 @@ import { ModuleRegistry } from './registry.js';
 import { loadModules } from './loader.js';
 import { ModuleDefinition } from './types.js';
 import { conflictMessage } from './conflicts.js';
+import { schemaToJsonSchema } from './schema-contracts.js';
 
 const ACTION_KEY_RE = /^[a-z0-9-]+\.[a-z0-9-]+$/;
 
@@ -31,6 +32,7 @@ export function moduleInfo(def: ModuleDefinition) {
     actions: Object.entries(def.actions).map(([name, a]) => ({
       key: `${def.name}.${name}`,
       description: a.description ?? null,
+      exportsSchema: schemaToJsonSchema(a.exportsSchema),
     })),
   };
 }

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { RunArtifacts } from '../artifacts/run-artifacts.js';
 import { isJsonObject, type JsonObject } from '../core/json.js';
 import { loadModuleRegistry } from '../modules/index.js';
@@ -154,17 +155,27 @@ export async function executeJobCase(
       payload,
     );
 
+    if (resolved.definition.exportsSchema) {
+      const exportsParseResult = resolved.definition.exportsSchema.safeParse(result.exports ?? {});
+      if (!exportsParseResult.success) {
+        const errors = exportsParseResult.error.issues.map((issue) => `${issue.path.join('.') || '<root>'}: ${issue.message}`);
+        throw new Error(`Export validation failed for ${step.action}: ${errors.join('; ')}`);
+      }
+    }
+
     runtime.steps[step.id] = {
       response: result.response ?? {},
       exports: result.exports ?? {},
     };
+    applyStepCapture(step.capture, step.id, result.exports ?? {}, runtime.run);
     debug(
-      'step done idx=%d id=%s action=%s detail=%s response=%O',
+      'step done idx=%d id=%s action=%s detail=%s response=%O exports=%O',
       stepNum,
       step.id,
       step.action,
       result.detail ?? '',
       redactDebug(result.response),
+      redactDebug(result.exports),
     );
     return result;
   };
@@ -282,6 +293,67 @@ export async function executeJobCase(
 
   if (executionError) throw new JobRunExecutionError(summary);
   return summary;
+}
+
+function deepGetByPath(obj: unknown, dotPath: string): unknown {
+  if (!dotPath) return obj;
+  const parts = dotPath.split('.');
+  let current: unknown = obj;
+  for (const part of parts) {
+    if (!current || typeof current !== 'object' || Array.isArray(current)) return undefined;
+    current = (current as Record<string, unknown>)[part];
+  }
+  return current;
+}
+
+function deepSetByPath(target: JsonObject, dotPath: string, value: unknown): void {
+  const parts = dotPath.split('.');
+  let current: JsonObject = target;
+
+  for (let i = 0; i < parts.length - 1; i += 1) {
+    const part = parts[i];
+    const next = current[part];
+    if (next === undefined) {
+      current[part] = {};
+      current = current[part] as JsonObject;
+      continue;
+    }
+    if (!isJsonObject(next)) {
+      throw new Error(`run.${parts.slice(0, i + 1).join('.')} is already set and cannot hold captured children`);
+    }
+    current = next;
+  }
+
+  current[parts[parts.length - 1]] = value;
+}
+
+function applyStepCapture(
+  capture: Record<string, string> | undefined,
+  stepId: string,
+  stepExports: Record<string, unknown>,
+  run: JsonObject,
+): void {
+  for (const [runKey, source] of Object.entries(capture ?? {})) {
+    if (!source.startsWith('exports.')) {
+      throw new Error(`Capture failed for step ${stepId}: unsupported source '${source}'`);
+    }
+
+    const sourcePath = source.slice('exports.'.length);
+    const value = deepGetByPath(stepExports, sourcePath);
+    if (value === undefined) {
+      throw new Error(`Capture failed for step ${stepId}: missing export '${sourcePath}'`);
+    }
+
+    const existing = deepGetByPath(run, runKey);
+    if (existing !== undefined) {
+      if (!isDeepStrictEqual(existing, value)) {
+        throw new Error(`Capture conflict for step ${stepId}: run.${runKey} is already set`);
+      }
+      continue;
+    }
+
+    deepSetByPath(run, runKey, value);
+  }
 }
 
 function printJobRunHeader(renderer: Renderer | undefined, jobType: string, runId: string): void {

@@ -55,7 +55,7 @@ afterEach(() => {
 });
 
 describe('job CLI', () => {
-  it('propagates action exports to later steps in the same run', () => {
+  it('captures action exports into run scope for later steps', () => {
     fs.mkdirSync(HTTP_FIXTURE_MODULE_DIR, { recursive: true });
     fs.writeFileSync(
       path.join(HTTP_FIXTURE_MODULE_DIR, 'module.json'),
@@ -124,12 +124,15 @@ describe('job CLI', () => {
                 id: 'publish',
                 action: `${HTTP_FIXTURE_MODULE_NAME}.publish`,
                 payload: {},
+                capture: {
+                  workflowId: 'exports.generatedId',
+                },
               },
               {
                 id: 'consume',
                 action: `${HTTP_FIXTURE_MODULE_NAME}.consume`,
                 payload: {
-                  generatedId: '${step.publish.exports.generatedId}',
+                  generatedId: '${run.workflowId}',
                 },
               },
             ],

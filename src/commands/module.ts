@@ -6,6 +6,7 @@ import { loadModuleRegistry, moduleInfo, hashDirectory } from '../modules/index.
 import { loadModuleFromDir, loadModules } from '../modules/loader.js';
 import { ModuleManifestSchema } from '../modules/manifest.js';
 import { ModuleRegistry } from '../modules/registry.js';
+import { schemaToJsonSchema } from '../modules/schema-contracts.js';
 import { readJson, requireFile } from '../utils/fs-json.js';
 import type { GroupedTableGroup } from '../output/renderer.js';
 import {
@@ -56,6 +57,29 @@ function renderJobWithDependencies(job: { kind: 'seed' | 'case'; id: string; pat
     ),
     ...summarizeDeclaredHttpDependencies(parsedJob.data).map((dep) => `    http: http.${dep.path}`),
   ];
+}
+
+function formatActionLine(action: { key: string; description: string | null; exportsSchema: Record<string, unknown> | null }): string[] {
+  const lines = [`  - ${action.key}${action.description ? ` - ${action.description}` : ''}`];
+  const exportsSummary = summarizeSchemaPropertiesFromJson(action.exportsSchema);
+  if (exportsSummary) lines.push(`      exports: ${exportsSummary}`);
+  return lines;
+}
+
+function summarizeSchemaPropertiesFromJson(jsonSchema: Record<string, unknown> | null): string | null {
+  if (!jsonSchema) return null;
+  const properties = jsonSchema.properties;
+  if (!properties || typeof properties !== 'object' || Array.isArray(properties)) return 'declared';
+  const entries = Object.entries(properties as Record<string, unknown>);
+  if (entries.length === 0) return 'declared';
+  return entries
+    .map(([key, value]) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return `${key}:unknown`;
+      const node = value as Record<string, unknown>;
+      const type = typeof node.type === 'string' ? node.type : 'unknown';
+      return `${key}:${type}`;
+    })
+    .join(', ');
 }
 
 export function registerModuleCommands(program: Command): void {
@@ -156,6 +180,12 @@ export function registerModuleCommands(program: Command): void {
       if (!mod) throw new Error(`Module not found: ${requestedName}`);
       const out = {
         ...moduleInfo(mod),
+        actions: Object.entries(mod.actions).map(([name, action]) => ({
+          key: `${mod.name}.${name}`,
+          description: action.description ?? null,
+          schema: schemaToJsonSchema(action.schema),
+          exportsSchema: schemaToJsonSchema(action.exportsSchema),
+        })),
       };
       const hash = mod.sourcePath.startsWith('builtin:') ? undefined : hashDirectory(mod.sourcePath);
       const outWithHash = hash ? { ...out, hash } : out;
@@ -168,7 +198,7 @@ export function registerModuleCommands(program: Command): void {
           `Source:   ${shortenHomePath(outWithHash.sourcePath)}`,
           `Actions:  ${outWithHash.actionCount}`,
           `Jobs:     ${outWithHash.jobs.length} total`,
-          ...outWithHash.actions.map((a) => `  - ${a.key}${a.description ? ` - ${a.description}` : ''}`),
+          ...outWithHash.actions.flatMap(formatActionLine),
           ...(caseJobs.length > 0 ? [`Case Jobs: ${caseJobs.length}`] : []),
           ...caseJobs.flatMap(renderJobWithDependencies),
           ...(seedJobs.length > 0 ? [`Seed Jobs: ${seedJobs.length}`] : []),

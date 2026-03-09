@@ -21,7 +21,8 @@ export interface ValidationIssue {
     | 'UNKNOWN_ACTION'
     | 'MODULE_VALIDATION_ERROR'
     | 'FLOW_POLL_VALIDATION_ERROR'
-    | 'DISALLOWED_MEMORY_MUTATION';
+    | 'DISALLOWED_MEMORY_MUTATION'
+    | 'INVALID_CAPTURE';
   message: string;
   stepId?: string;
   path?: string;
@@ -123,6 +124,36 @@ export function validateJobCase(
         path: 'action',
         message: `${step.action} is only allowed in seed jobs`,
       });
+    }
+
+    for (const [captureKey, captureSource] of Object.entries(step.capture ?? {})) {
+      const capturePath = `capture.${captureKey || '<empty>'}`;
+      if (!captureKey.trim() || captureKey.split('.').some((segment) => segment.trim().length === 0)) {
+        issues.push({
+          code: 'INVALID_CAPTURE',
+          stepId: step.id,
+          path: capturePath,
+          message: 'Capture target keys must use non-empty dot segments',
+        });
+      }
+      if (!captureSource.startsWith('exports.')) {
+        issues.push({
+          code: 'INVALID_CAPTURE',
+          stepId: step.id,
+          path: capturePath,
+          message: `Capture source '${captureSource}' must start with 'exports.'`,
+        });
+        continue;
+      }
+      const sourcePath = captureSource.slice('exports.'.length);
+      if (!sourcePath || sourcePath.split('.').some((segment) => segment.trim().length === 0)) {
+        issues.push({
+          code: 'INVALID_CAPTURE',
+          stepId: step.id,
+          path: capturePath,
+          message: 'Capture source paths must use non-empty dot segments after exports.',
+        });
+      }
     }
 
     if (!isNamespacedAction(step.action)) {

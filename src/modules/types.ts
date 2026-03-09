@@ -36,6 +36,7 @@ type ActionHandler<T> = {
 export interface ModuleAction<T = unknown> {
   description: string;
   schema: z.ZodSchema<T>;
+  exportsSchema?: z.ZodSchema;
   handler: ActionHandler<T>;
 }
 
@@ -47,6 +48,7 @@ export function defineModule(def: DispatchModule): DispatchModule {
 export function defineAction<T>(opts: {
   description: string;
   schema: z.ZodSchema<T>;
+  exportsSchema?: z.ZodSchema;
   handler: (ctx: ActionContext, payload: T) => Promise<ActionResult>;
 }): ModuleAction<T> {
   return opts;
