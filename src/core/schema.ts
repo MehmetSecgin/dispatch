@@ -57,9 +57,14 @@ const MemoryDependencySchema = z.object({
   fill: MemoryDependencyFillSchema.optional(),
 });
 
+const HttpDependencySchema = z.object({
+  required: z.array(z.string().min(1)).optional(),
+});
+
 const JobDependenciesSchema = z.object({
   modules: z.array(ModuleDependencySchema).optional(),
   memory: z.array(MemoryDependencySchema).optional(),
+  http: HttpDependencySchema.optional(),
 });
 
 const JobHttpSchema = z.object({
@@ -88,6 +93,7 @@ export type MemoryDependency = z.infer<typeof MemoryDependencySchema>;
 export type MemoryDependencyFill = z.infer<typeof MemoryDependencyFillSchema>;
 export type MemoryNamespace = z.infer<typeof MemoryNamespaceSchema>;
 export type MemoryKey = z.infer<typeof MemoryKeySchema>;
+export type HttpDependency = z.infer<typeof HttpDependencySchema>;
 
 export function normalizeSteps(job: JobCase): JobStep[] {
   return job.scenario.steps.map((s, idx) => ({ ...s, id: s.id ?? `step_${idx + 1}` }));

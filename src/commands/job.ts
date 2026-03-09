@@ -42,7 +42,9 @@ import { HttpPoolRegistry } from '../services/http-pool.js';
 import { inspectBatchSummary, resolveBatchSummaryPath } from '../job/batch-inspect.js';
 import {
   inspectJobDependencies,
+  resolveEffectiveJobHttpConfig,
   resolveJobDependencies,
+  summarizeDeclaredHttpDependencies,
   summarizeDeclaredMemoryDependencies,
   type DependencyIssue,
 } from '../job/dependencies.js';
@@ -92,6 +94,10 @@ function stripRunUniqSuffix(label: string): string {
 
 function formatDependencyIssue(issue: DependencyIssue): string {
   if (issue.dependencyType === 'module') return issue.message;
+  if (issue.dependencyType === 'http') {
+    const location = issue.httpPath ? `http.${issue.httpPath}` : issue.message;
+    return `${location}: ${issue.message}`;
+  }
   const location = issue.namespace && issue.key ? `${issue.namespace}.${issue.key}` : issue.message;
   return issue.fill
     ? `${location}: ${issue.message} (fill: ${issue.fill.module}:${issue.fill.job})`
@@ -105,6 +111,10 @@ function formatDeclaredMemoryDependency(input: {
 }): string {
   const location = `${input.namespace}.${input.key}`;
   return input.fill ? `${location} (seed: ${input.fill.module}:${input.fill.job})` : location;
+}
+
+function formatDeclaredHttpDependency(input: { path: string }): string {
+  return `http.${input.path}`;
 }
 
 export function registerJobCommands(
@@ -153,6 +163,7 @@ export function registerJobCommands(
       let dependencyCheck = inspectJobDependencies(jc, {
         registry,
         configDir: defaultRuntime(deps.cliVersion).configDir,
+        effectiveHttp: resolveEffectiveJobHttpConfig(jc, defaultRuntime(deps.cliVersion)),
       });
       if (cmd.resolveDeps && !dependencyCheck.valid) {
         dependencyCheck = await resolveJobDependencies(jc, {
@@ -856,6 +867,7 @@ export function registerJobCommands(
         registry,
         configDir: defaultRuntime(deps.cliVersion).configDir,
       });
+      const declaredHttpDeps = summarizeDeclaredHttpDependencies(parsed.data);
       const declaredMemoryDeps = summarizeDeclaredMemoryDependencies(parsed.data);
       const valid = result.valid && dependencyCheck.valid;
       if (!!opts.json) {
@@ -884,6 +896,9 @@ export function registerJobCommands(
                   `! Memory deps:`,
                   ...declaredMemoryDeps.map((dep) => `  - ${formatDeclaredMemoryDependency(dep)}`),
                 ]
+              : []),
+            ...(declaredHttpDeps.length > 0
+              ? [`! HTTP deps:`, ...declaredHttpDeps.map((dep) => `  - ${formatDeclaredHttpDependency(dep)}`)]
               : []),
             ...[...warnings, ...result.warnings].map((w) => `! ${w}`),
           ],

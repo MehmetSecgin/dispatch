@@ -125,7 +125,10 @@ Jobs can declare prerequisites at the top level:
           "job": "seed-user-1-reference"
         }
       }
-    ]
+    ],
+    "http": {
+      "required": ["baseUrl", "defaultHeaders.x-client"]
+    }
   }
 }
 ```
@@ -142,6 +145,32 @@ Jobs can declare prerequisites at the top level:
 - are checked before execution
 - if missing, validation/run fails early
 - if `fill` exists, `next[]` suggests the seed job to populate it
+
+### HTTP dependencies
+
+- declare required shared transport config under `dependencies.http.required`
+- paths are checked against the job's top-level `http` block
+- are validated by both `dispatch job validate` and `dispatch job run`
+- fail as clear preflight errors before actions make requests
+
+Example:
+
+```json
+{
+  "http": {
+    "baseUrl": "https://api.example.com",
+    "defaultHeaders": {
+      "x-client": "dispatch",
+      "x-tenant": "example-tenant"
+    }
+  },
+  "dependencies": {
+    "http": {
+      "required": ["baseUrl", "defaultHeaders.x-tenant"]
+    }
+  }
+}
+```
 
 ## Fill jobs and `--resolve-deps`
 

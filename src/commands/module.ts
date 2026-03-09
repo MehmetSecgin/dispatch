@@ -19,7 +19,7 @@ import { defaultUserModulesDir, inferJobFileKind } from '../data/run-data.js';
 import { cliErrorFromCode, exitCodeForCliError, jsonErrorEnvelope } from '../core/errors.js';
 import { JobCaseSchema } from '../core/schema.js';
 import { validateJobCase } from '../job/validator.js';
-import { summarizeDeclaredMemoryDependencies } from '../job/dependencies.js';
+import { inspectHttpDependencies, summarizeDeclaredHttpDependencies, summarizeDeclaredMemoryDependencies } from '../job/dependencies.js';
 import { loadActionDefaults } from '../execution/action-defaults.js';
 
 function findZipBinary(): string {
@@ -54,6 +54,7 @@ function renderJobWithDependencies(job: { kind: 'seed' | 'case'; id: string; pat
     ...summarizeDeclaredMemoryDependencies(parsedJob.data).map(
       (dep) => `    memory: ${formatDeclaredMemoryDependency(dep)}`,
     ),
+    ...summarizeDeclaredHttpDependencies(parsedJob.data).map((dep) => `    http: http.${dep.path}`),
   ];
 }
 
@@ -228,12 +229,21 @@ export function registerModuleCommands(program: Command): void {
         const validated = validateJobCase(parsedJob.data, registry, loadActionDefaults(), {
           jobKind: inferJobFileKind(job.path),
         });
-        return validated.issues.map((issue) => ({
-          jobId: job.id,
-          kind: job.kind,
-          path: `${job.id}:${issue.path || '<root>'}`,
-          message: issue.message,
-        }));
+        const httpDependencyCheck = inspectHttpDependencies(parsedJob.data);
+        return [
+          ...validated.issues.map((issue) => ({
+            jobId: job.id,
+            kind: job.kind,
+            path: `${job.id}:${issue.path || '<root>'}`,
+            message: issue.message,
+          })),
+          ...httpDependencyCheck.issues.map((issue) => ({
+            jobId: job.id,
+            kind: job.kind,
+            path: `${job.id}:http.${issue.httpPath || '<root>'}`,
+            message: issue.message,
+          })),
+        ];
       });
       const out = {
         valid: Object.keys(moduleDef.actions).length > 0 && emptyDescriptions.length === 0 && jobIssues.length === 0,

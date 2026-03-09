@@ -10,6 +10,7 @@ const REPO_ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), 
 const FIXTURE_MODULE_NAME = `zz-memory-deps-fixture-${process.pid}`;
 const FIXTURE_MODULE_DIR = path.join(REPO_ROOT, 'modules', FIXTURE_MODULE_NAME);
 const FIXTURE_CASE_PATH = path.join(FIXTURE_MODULE_DIR, 'jobs', 'from-memory.job.case.json');
+const FIXTURE_HTTP_CASE_PATH = path.join(FIXTURE_MODULE_DIR, 'jobs', 'requires-http.job.case.json');
 const MEMORY_CONFIG_DIR = path.join(os.tmpdir(), `dispatch-memory-config-${process.pid}`);
 const SDK_IMPORT = JSON.stringify(pathToFileURL(path.join(REPO_ROOT, 'src', 'index.ts')).href);
 
@@ -161,6 +162,39 @@ beforeAll(() => {
     )}\n`,
     'utf8',
   );
+  fs.writeFileSync(
+    FIXTURE_HTTP_CASE_PATH,
+    `${JSON.stringify(
+      {
+        schemaVersion: 1,
+        jobType: 'fixture-requires-http',
+        http: {
+          defaultHeaders: {
+            'x-client': 'dispatch-test',
+          },
+        },
+        dependencies: {
+          http: {
+            required: ['baseUrl', 'defaultHeaders.x-client', 'defaultHeaders.x-brand'],
+          },
+        },
+        scenario: {
+          steps: [
+            {
+              id: 'user',
+              action: `${FIXTURE_MODULE_NAME}.get-user`,
+              payload: {
+                id: 7,
+              },
+            },
+          ],
+        },
+      },
+      null,
+      2,
+    )}\n`,
+    'utf8',
+  );
   fs.rmSync(path.join(path.dirname(MEMORY_CONFIG_DIR), '.dispatch'), { recursive: true, force: true });
 });
 
@@ -214,5 +248,44 @@ describe('job dependency preflight', () => {
       name: 'User 7',
       role: 'trader',
     });
+  });
+
+  it('reports missing required http config during validate', () => {
+    const result = runCli(['job', 'validate', '--case', path.relative(REPO_ROOT, FIXTURE_HTTP_CASE_PATH)]);
+
+    expect(result.status).toBe(2);
+    expect(result.json?.details?.dependencyIssues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          dependencyType: 'http',
+          httpPath: 'baseUrl',
+        }),
+        expect.objectContaining({
+          dependencyType: 'http',
+          httpPath: 'defaultHeaders.x-brand',
+        }),
+      ]),
+    );
+  });
+
+  it('reports missing required http config before execution', () => {
+    const result = runCli(['job', 'run', '--case', path.relative(REPO_ROOT, FIXTURE_HTTP_CASE_PATH)]);
+
+    expect(result.status).toBe(2);
+    expect(result.json).toEqual(
+      expect.objectContaining({
+        status: 'error',
+        code: 'USAGE_ERROR',
+        message: 'job dependency preflight failed',
+      }),
+    );
+    expect(result.json?.details?.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          dependencyType: 'http',
+          httpPath: 'baseUrl',
+        }),
+      ]),
+    );
   });
 });

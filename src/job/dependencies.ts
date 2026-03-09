@@ -1,31 +1,34 @@
 import path from 'node:path';
 import satisfies from 'semver/functions/satisfies.js';
 import type { JsonObject } from '../core/json.js';
-import type { JobCase, MemoryDependency, ModuleDependency } from '../core/schema.js';
+import type { JobCase, JobHttpConfig, MemoryDependency, ModuleDependency } from '../core/schema.js';
 import { loadCase } from '../data/run-data.js';
 import { recallMemoryValue } from '../modules/builtin/memory/store.js';
 import { resolveModuleJob } from '../modules/jobs.js';
 import { ModuleRegistry } from '../modules/registry.js';
 import type { ModuleDefinition } from '../modules/types.js';
 import { HttpPoolRegistry } from '../services/http-pool.js';
-import { executeJobCase } from './runner.js';
+import { executeJobCase, resolveJobHttpConfig } from './runner.js';
 import type { NextAction } from './next-actions.js';
+import type { RuntimeContext } from '../execution/interpolation.js';
 
 type DependencyIssueCode =
   | 'MISSING_MODULE_DEPENDENCY'
   | 'MODULE_VERSION_MISMATCH'
   | 'MISSING_MEMORY_DEPENDENCY'
-  | 'INVALID_FILL_JOB';
+  | 'INVALID_FILL_JOB'
+  | 'MISSING_HTTP_DEPENDENCY';
 
 export interface DependencyIssue {
   code: DependencyIssueCode;
-  dependencyType: 'module' | 'memory';
+  dependencyType: 'module' | 'memory' | 'http';
   message: string;
   moduleName?: string;
   requiredVersion?: string;
   actualVersion?: string;
   namespace?: string;
   key?: string;
+  httpPath?: string;
   fill?: {
     module: string;
     job: string;
@@ -46,6 +49,10 @@ export interface DeclaredMemoryDependencySummary {
     module: string;
     job: string;
   };
+}
+
+export interface DeclaredHttpDependencySummary {
+  path: string;
 }
 
 interface FillResolution {
@@ -133,11 +140,57 @@ function resolveFillJob(
   };
 }
 
+function hasOwnPath(obj: unknown, pathSpec: string): boolean {
+  if (!obj || typeof obj !== 'object') return false;
+  if (!pathSpec) return false;
+  const segments = pathSpec.split('.');
+  let current: unknown = obj;
+  for (const segment of segments) {
+    if (!segment) return false;
+    if (!current || typeof current !== 'object') return false;
+    const record = current as Record<string, unknown>;
+    if (!Object.prototype.hasOwnProperty.call(record, segment)) return false;
+    current = record[segment];
+  }
+  return true;
+}
+
+export function inspectHttpDependencies(
+  job: JobCase,
+  effectiveHttp?: JobHttpConfig,
+): Pick<DependencyCheckResult, 'issues' | 'valid'> {
+  const issues: DependencyIssue[] = [];
+  const requiredPaths = job.dependencies?.http?.required ?? [];
+  const resolvedHttp = effectiveHttp ?? job.http;
+  for (const pathSpec of requiredPaths) {
+    if (hasOwnPath(resolvedHttp, pathSpec)) continue;
+    issues.push({
+      code: 'MISSING_HTTP_DEPENDENCY',
+      dependencyType: 'http',
+      httpPath: pathSpec,
+      message: `Missing required HTTP config http.${pathSpec}`,
+    });
+  }
+  return {
+    valid: issues.length === 0,
+    issues,
+  };
+}
+
+export function resolveEffectiveJobHttpConfig(
+  job: JobCase,
+  runtime?: RuntimeContext,
+): JobHttpConfig | undefined {
+  if (!runtime) return job.http;
+  return resolveJobHttpConfig(job.http, runtime);
+}
+
 export function inspectJobDependencies(
   job: JobCase,
   opts: {
     registry: ModuleRegistry;
     configDir: string;
+    effectiveHttp?: JobHttpConfig;
   },
 ): DependencyCheckResult {
   const issues: DependencyIssue[] = [];
@@ -211,6 +264,8 @@ export function inspectJobDependencies(
     if (resolvedFill) next.push(nextActionForMemoryFill(dep, resolvedFill.path));
   }
 
+  issues.push(...inspectHttpDependencies(job, opts.effectiveHttp).issues);
+
   return {
     valid: issues.length === 0,
     issues,
@@ -273,4 +328,8 @@ export function summarizeDeclaredMemoryDependencies(job: JobCase): DeclaredMemor
         }
       : undefined,
   }));
+}
+
+export function summarizeDeclaredHttpDependencies(job: JobCase): DeclaredHttpDependencySummary[] {
+  return (job.dependencies?.http?.required ?? []).map((path) => ({ path }));
 }
