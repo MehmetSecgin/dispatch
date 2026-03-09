@@ -17,14 +17,32 @@ export interface HttpTransportOptions {
   poolRegistry?: HttpPoolRegistry;
 }
 
+interface HttpTransportSharedState {
+  cookieJar: CookieJar;
+  poolRegistry?: HttpPoolRegistry;
+}
+
 export class HttpTransport {
   private readonly debug = debugNs('http');
-  private readonly cookieJar = new CookieJar();
+  private shared: HttpTransportSharedState;
 
-  constructor(
-    private readonly artifacts: RunArtifacts,
-    private readonly opts?: HttpTransportOptions,
-  ) {}
+  constructor(private readonly artifacts: RunArtifacts, private readonly opts?: HttpTransportOptions) {
+    this.shared = {
+      cookieJar: new CookieJar(),
+      poolRegistry: opts?.poolRegistry,
+    };
+  }
+
+  withDefaults(opts?: Pick<HttpTransportOptions, 'baseUrl' | 'defaultHeaders'>): HttpTransport {
+    const derived = new HttpTransport(this.artifacts, {
+      ...this.opts,
+      ...opts,
+      defaultHeaders: mergeDefaultHeaders(this.opts?.defaultHeaders, opts?.defaultHeaders),
+      poolRegistry: this.shared.poolRegistry,
+    });
+    derived.shared = this.shared;
+    return derived;
+  }
 
   async get(url: string, opts?: HttpRequestOptions): Promise<HttpResponse> {
     return this.request('GET', url, opts);
@@ -82,7 +100,7 @@ export class HttpTransport {
     }
 
     const mergedCookieHeader = mergeCookieHeaders(
-      this.cookieJar.getCookieHeader(new URL(resolvedUrl)),
+      this.shared.cookieJar.getCookieHeader(new URL(resolvedUrl)),
       headers.cookie,
     );
     if (mergedCookieHeader) headers.cookie = mergedCookieHeader;
@@ -100,7 +118,7 @@ export class HttpTransport {
     ];
 
     const parsedUrl = new URL(resolvedUrl);
-    const poolRegistry = this.opts?.poolRegistry ?? getDefaultHttpPoolRegistry();
+    const poolRegistry = this.shared.poolRegistry ?? getDefaultHttpPoolRegistry();
     const pool = poolRegistry.getForUrl(resolvedUrl);
 
     let code = 0;
@@ -116,7 +134,7 @@ export class HttpTransport {
         body: bodyData ?? undefined,
       });
       code = result.statusCode;
-      this.cookieJar.storeFromResponse(parsedUrl, result.headers);
+      this.shared.cookieJar.storeFromResponse(parsedUrl, result.headers);
       rawResponse = await result.body.text();
       endedAt = nowIso();
       fs.writeFileSync(respPath, rawResponse, 'utf8');
@@ -204,4 +222,19 @@ function sanitizeHeaderValueForLog(name: string, value: string): string {
   const lowerName = name.toLowerCase();
   if (lowerName === 'cookie' || lowerName === 'authorization') return '[REDACTED]';
   return value;
+}
+
+function mergeDefaultHeaders(
+  base?: Record<string, string>,
+  extra?: Record<string, string>,
+): Record<string, string> | undefined {
+  if (!base && !extra) return undefined;
+  const merged: Record<string, string> = {};
+  for (const headers of [base, extra]) {
+    if (!headers) continue;
+    for (const [key, value] of Object.entries(headers)) {
+      merged[key.toLowerCase()] = value;
+    }
+  }
+  return merged;
 }
