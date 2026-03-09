@@ -59,6 +59,33 @@ describe('validateJobCase (flow-only)', () => {
     expect(result.issues.some(i => i.code === 'UNKNOWN_STEP_REFERENCE')).toBe(true);
   });
 
+  it('accepts backward exports references and rejects forward ones', () => {
+    const okJob = parseJob({
+      schemaVersion: 1,
+      jobType: 'exports-backward-ref',
+      scenario: {
+        steps: [
+          { id: 'publish', action: 'flow.sleep', payload: { duration: '1s' } },
+          { id: 'use', action: 'flow.sleep', payload: { duration: '${step.publish.exports.generatedId}' } },
+        ],
+      },
+    });
+
+    const badJob = parseJob({
+      schemaVersion: 1,
+      jobType: 'exports-forward-ref',
+      scenario: {
+        steps: [
+          { id: 'use', action: 'flow.sleep', payload: { duration: '${step.publish.exports.generatedId}' } },
+          { id: 'publish', action: 'flow.sleep', payload: { duration: '1s' } },
+        ],
+      },
+    });
+
+    expect(validateJobCase(okJob).issues.some(i => i.code === 'UNKNOWN_STEP_REFERENCE' || i.code === 'FORWARD_STEP_REFERENCE')).toBe(false);
+    expect(validateJobCase(badJob).issues.some(i => i.code === 'FORWARD_STEP_REFERENCE')).toBe(true);
+  });
+
   it('fails invalid flow.poll target and jsonpath', async () => {
     const job = parseJob({
       schemaVersion: 1,

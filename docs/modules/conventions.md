@@ -77,3 +77,4 @@ mymodule/
 - Prefer relative HTTP paths in handlers when the job should supply shared API context through the top-level `http` block.
 - If a module has login/session behavior, let `ctx.http` own the cookie session for the current run instead of saving cookies in module state or `memory`.
 - If a module repeatedly calls the same API in one action or helper, derive a scoped client with `ctx.http.withDefaults(...)` instead of manually rebuilding the same base URL and shared headers on every request.
+- If an action generates a same-run workflow value that later steps need, return it in `exports` rather than inventing a fake response field or writing to durable memory.

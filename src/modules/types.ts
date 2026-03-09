@@ -15,6 +15,7 @@ export interface ModuleJobDefinition {
 
 export interface ActionResult {
   response?: unknown;
+  exports?: Record<string, unknown>;
   detail?: string;
   diagnostics?: Record<string, unknown>;
 }

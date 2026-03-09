@@ -20,6 +20,13 @@ function runtimeContext(): RuntimeContext {
             count: 1,
           },
         },
+        exports: {
+          generatedId: 'id-123',
+          request: {
+            id: 99,
+            tags: ['featured'],
+          },
+        },
       },
     },
   };
@@ -55,6 +62,26 @@ describe('interpolateAny', () => {
 
     expect(out).toEqual({
       title: 'Sample 42 for example-config',
+    });
+  });
+
+  it('reads step exports for full-expression and embedded values', () => {
+    const out = interpolateAny(
+      {
+        id: '${step.sample.exports.generatedId}',
+        request: '${step.sample.exports.request}',
+        title: 'Event ${step.sample.exports.generatedId}',
+      },
+      runtimeContext(),
+    );
+
+    expect(out).toEqual({
+      id: 'id-123',
+      request: {
+        id: 99,
+        tags: ['featured'],
+      },
+      title: 'Event id-123',
     });
   });
 });

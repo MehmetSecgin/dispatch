@@ -55,6 +55,101 @@ afterEach(() => {
 });
 
 describe('job CLI', () => {
+  it('propagates action exports to later steps in the same run', () => {
+    fs.mkdirSync(HTTP_FIXTURE_MODULE_DIR, { recursive: true });
+    fs.writeFileSync(
+      path.join(HTTP_FIXTURE_MODULE_DIR, 'module.json'),
+      `${JSON.stringify(
+        {
+          name: HTTP_FIXTURE_MODULE_NAME,
+          version: '1.0.0',
+          entry: 'index.mjs',
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(HTTP_FIXTURE_MODULE_DIR, 'index.mjs'),
+      [
+        `import { defineAction, defineModule } from ${SDK_IMPORT};`,
+        `import { z } from ${ZOD_IMPORT};`,
+        '',
+        'async function publish(_ctx, payload) {',
+        "  const generatedId = payload.generatedId || 'generated-id';",
+        '  return {',
+        '    response: { ok: true },',
+        '    exports: { generatedId },',
+        "    detail: `published=${generatedId}`,",
+        '  };',
+        '}',
+        '',
+        'async function consume(_ctx, payload) {',
+        "  if (payload.generatedId !== 'generated-id') throw new Error(`unexpected generatedId=${payload.generatedId}`);",
+        "  return { response: { consumed: payload.generatedId }, detail: 'consumed export' };",
+        '}',
+        '',
+        'export default defineModule({',
+        `  name: '${HTTP_FIXTURE_MODULE_NAME}',`,
+        "  version: '1.0.0',",
+        '  actions: {',
+        "    publish: defineAction({",
+        "      description: 'Generate or reuse an identifier.',",
+        "      schema: z.object({ generatedId: z.string().min(1).optional() }),",
+        '      handler: publish,',
+        '    }),',
+        "    consume: defineAction({",
+        "      description: 'Consume an identifier from a prior step export.',",
+        "      schema: z.object({ generatedId: z.string().min(1) }),",
+        '      handler: consume,',
+        '    }),',
+        '  },',
+        '});',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const casePath = path.join(HTTP_FIXTURE_MODULE_DIR, 'step-exports.job.case.json');
+    fs.writeFileSync(
+      casePath,
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          jobType: 'step-exports',
+          scenario: {
+            steps: [
+              {
+                id: 'publish',
+                action: `${HTTP_FIXTURE_MODULE_NAME}.publish`,
+                payload: {},
+              },
+              {
+                id: 'consume',
+                action: `${HTTP_FIXTURE_MODULE_NAME}.consume`,
+                payload: {
+                  generatedId: '${step.publish.exports.generatedId}',
+                },
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+
+    const result = runCli(['job', 'run', '--case', path.relative(REPO_ROOT, casePath)]);
+
+    expect(result.status).toBe(0);
+    expect(result.json).toEqual(expect.objectContaining({
+      status: 'SUCCESS',
+      runDir: expect.any(String),
+    }));
+  });
+
   it('applies job-level http defaults across steps and keeps cookies run-scoped', async () => {
     fs.mkdirSync(HTTP_FIXTURE_MODULE_DIR, { recursive: true });
     fs.writeFileSync(

@@ -154,7 +154,10 @@ export async function executeJobCase(
       payload,
     );
 
-    runtime.steps[step.id] = { response: result.response ?? {} };
+    runtime.steps[step.id] = {
+      response: result.response ?? {},
+      exports: result.exports ?? {},
+    };
     debug(
       'step done idx=%d id=%s action=%s detail=%s response=%O',
       stepNum,

@@ -1,7 +1,10 @@
 import { JSONPath } from 'jsonpath-plus';
 import { isJsonObject, type JsonObject, type JsonValue } from '../core/json.js';
 
-type RuntimeStepState = { response?: JsonValue | unknown };
+type RuntimeStepState = {
+  response?: JsonValue | unknown;
+  exports?: JsonObject | Record<string, unknown>;
+};
 const FULL_EXPR_RE = /^\$\{([^}]+)\}$/;
 
 export interface RuntimeContext {
@@ -34,13 +37,15 @@ function evaluateExpression(exprRaw: string, ctx: RuntimeContext): unknown {
     return value == null ? '' : value;
   }
   if (expr.startsWith('step.')) {
-    const match = expr.match(/^step\.([^.]+)\.response\.(.+)$/);
+    const match = expr.match(/^step\.([^.]+)\.(response|exports)\.(.+)$/);
     if (!match) return '';
     const stepId = match[1];
-    const dotPath = match[2];
+    const stateKey = match[2] as 'response' | 'exports';
+    const dotPath = match[3];
     const step = ctx.steps[stepId];
-    if (!step || step.response == null) return '';
-    const value = deepGetByPath(step.response, dotPath);
+    const state = step?.[stateKey];
+    if (state == null) return '';
+    const value = deepGetByPath(state, dotPath);
     return value == null ? '' : value;
   }
   if (expr.startsWith('jsonpath(') && expr.endsWith(')')) {
