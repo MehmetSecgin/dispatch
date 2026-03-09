@@ -141,6 +141,8 @@ function parseSetCookie(raw: string, url: URL): StoredCookie | null {
       case 'httponly':
         httpOnly = true;
         break;
+      // SameSite is intentionally not enforced — this jar is run-scoped and
+      // dispatch controls all requests within a run, so cross-site semantics do not apply.
       default:
         break;
     }

@@ -1,4 +1,4 @@
-import { defineAction, defineModule } from '../../src/index.ts';
+import { defineAction, defineModule } from '../../module-sdk.mjs';
 import {
   ListPostsSchema,
   CreatePostSchema,
