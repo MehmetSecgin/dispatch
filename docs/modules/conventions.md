@@ -13,6 +13,11 @@ Reference example:
 - [`modules/jsonplaceholder`](/Users/mehmetsecgin/dispatch/modules/jsonplaceholder)
   A public repo module showing action definitions, schemas, case jobs, and a seed job.
 
+Related guidance:
+
+- [HTTP auth and session behavior](http-auth.md)
+  Use `ctx.http` for cookie-backed auth flows; modules should not persist cookies themselves.
+
 ## Small Modules (1-5 actions)
 
 ```text
@@ -69,3 +74,4 @@ mymodule/
 - A reader opening `index.mjs` should be able to see the full action surface of the module without scrolling through implementation details.
 - Prefer `defineModule(...)` + `defineAction(...)` so schema and handler definitions stay together.
 - Ship at least one realistic case job. The `jsonplaceholder` module is a good reference for this.
+- If a module has login/session behavior, let `ctx.http` own the cookie session for the current run instead of saving cookies in module state or `memory`.
