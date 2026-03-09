@@ -350,4 +350,50 @@ describe('job CLI', () => {
     expect(result.stdout).toContain('jsonplaceholder-reference.users.user-1');
     expect(result.stdout).toContain('seed: jsonplaceholder:seed-user-1-reference');
   });
+
+  it('shows declared http dependencies in successful human validate output', () => {
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-job-cli-test-'));
+    const casePath = path.join(homeDir, 'http-deps.job.case.json');
+    fs.writeFileSync(
+      casePath,
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          jobType: 'http-deps-fixture',
+          http: {
+            baseUrl: 'https://api.example.test',
+            defaultHeaders: {
+              'x-client': 'dispatch-test',
+            },
+          },
+          dependencies: {
+            http: {
+              required: ['baseUrl', 'defaultHeaders.x-client'],
+            },
+          },
+          scenario: {
+            steps: [
+              {
+                id: 'sleep',
+                action: 'flow.sleep',
+                payload: {
+                  duration: '1ms',
+                },
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+
+    const result = runCliHuman(['job', 'validate', '--case', casePath], { HOME: homeDir });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('HTTP deps:');
+    expect(result.stdout).toContain('http.baseUrl');
+    expect(result.stdout).toContain('http.defaultHeaders.x-client');
+  });
 });

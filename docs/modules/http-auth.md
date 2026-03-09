@@ -35,6 +35,20 @@ For stable request config that is shared across the whole run, declare it in the
 }
 ```
 
+If your module intentionally relies on job-level HTTP config, make the requirement explicit:
+
+```json
+{
+  "dependencies": {
+    "http": {
+      "required": ["baseUrl", "defaultHeaders.x-client"]
+    }
+  }
+}
+```
+
+That keeps transport ownership at the job level while making missing config fail as a preflight error instead of a later request-time surprise.
+
 For stable request config that is shared across multiple calls inside one handler/helper,
 derive a scoped client explicitly:
 

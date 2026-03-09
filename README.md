@@ -142,6 +142,28 @@ Jobs can declare shared request context once at the top level:
 - Cookies/session continuity still live in the shared run transport
 - Handlers can still derive narrower clients with `ctx.http.withDefaults(...)`
 
+If a job intentionally relies on shared HTTP context, declare that explicitly in dependencies:
+
+```json
+{
+  "http": {
+    "baseUrl": "https://api.example.com",
+    "defaultHeaders": {
+      "x-client": "dispatch"
+    }
+  },
+  "dependencies": {
+    "http": {
+      "required": ["baseUrl", "defaultHeaders.x-client"]
+    }
+  }
+}
+```
+
+- `job.http` holds the actual values
+- `dependencies.http.required` declares which paths must be present
+- `dispatch job validate` and `dispatch job run` fail early if required HTTP config is missing
+
 ### Memory and job kinds
 
 Dispatch distinguishes between portable case jobs and memory-mutating seed jobs:
@@ -203,13 +225,17 @@ Jobs can declare explicit prerequisites:
           "job": "seed-user-1-reference"
         }
       }
-    ]
+    ],
+    "http": {
+      "required": ["baseUrl", "defaultHeaders.x-client"]
+    }
   }
 }
 ```
 
 - Module dependencies are validated before execution
 - Missing memory dependencies fail early with actionable `next[]`
+- Missing required HTTP config fails before actions execute
 - `dispatch job run --resolve-deps` can run fill jobs before the main job
 - Fill jobs resolve by logical module job id, preferring `<job>.job.seed.json` over `<job>.job.case.json`
 

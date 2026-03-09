@@ -193,4 +193,90 @@ describe('module CLI', () => {
       ]),
     );
   });
+
+  it('fails module validate when a shipped job is missing required http config', () => {
+    const moduleDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-module-validate-test-'));
+    fs.mkdirSync(path.join(moduleDir, 'jobs'), { recursive: true });
+    fs.writeFileSync(
+      path.join(moduleDir, 'module.json'),
+      `${JSON.stringify(
+        {
+          name: 'http-dependency-fixture',
+          version: '1.0.0',
+          entry: 'index.mjs',
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(moduleDir, 'index.mjs'),
+      [
+        `import { defineAction, defineModule } from ${SDK_IMPORT};`,
+        `import { z } from ${ZOD_IMPORT};`,
+        '',
+        'async function noop() {',
+        "  return { response: { ok: true }, detail: 'ok' };",
+        '}',
+        '',
+        'export default defineModule({',
+        "  name: 'http-dependency-fixture',",
+        "  version: '1.0.0',",
+        '  actions: {',
+        '    noop: defineAction({',
+        "      description: 'No-op fixture action.',",
+        '      schema: z.object({}),',
+        '      handler: noop,',
+        '    }),',
+        '  },',
+        '});',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(moduleDir, 'jobs', 'requires-http.job.case.json'),
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          jobType: 'requires-http',
+          http: {
+            defaultHeaders: {
+              'x-client': 'dispatch-test',
+            },
+          },
+          dependencies: {
+            http: {
+              required: ['baseUrl', 'defaultHeaders.x-client', 'defaultHeaders.x-brand'],
+            },
+          },
+          scenario: {
+            steps: [
+              {
+                id: 'noop',
+                action: 'http-dependency-fixture.noop',
+                payload: {},
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+
+    const result = runCli(['module', 'validate', '--path', moduleDir]);
+
+    expect(result.status).toBe(2);
+    expect(result.json?.details?.jobIssues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: expect.stringContaining('requires-http:http.'),
+          message: expect.stringContaining('Missing required HTTP config'),
+        }),
+      ]),
+    );
+  });
 });

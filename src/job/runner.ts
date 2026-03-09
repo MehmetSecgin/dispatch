@@ -333,7 +333,10 @@ function singleLineProgress(input: string): string {
   return `${clean.slice(0, max - 1)}…`;
 }
 
-function resolveJobHttpConfig(httpConfig: JobHttpConfig | undefined, runtime: RuntimeContext): JobHttpConfig | undefined {
+export function resolveJobHttpConfig(
+  httpConfig: JobHttpConfig | undefined,
+  runtime: RuntimeContext,
+): JobHttpConfig | undefined {
   if (!httpConfig) return undefined;
   const resolved = interpolateAny(httpConfig, runtime);
   if (!isJsonObject(resolved)) throw new Error('Job http config must resolve to an object');
