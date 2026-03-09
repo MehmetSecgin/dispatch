@@ -8,6 +8,13 @@ Dispatch has three distinct data channels:
 
 If a value only matters inside one run, use `step.*` or `run.*`. Persistent memory is for cached reference data, checkpoints, and shared bootstrap context.
 
+Step values may come from either:
+
+- `step.<id>.response.*` for transport-honest action results
+- `step.<id>.exports.*` for same-run workflow values intentionally emitted by the action
+
+Use `exports` when an action generates or finalizes a value during execution and later steps need that exact value, but the server response should stay unchanged.
+
 ## Memory namespaces
 
 Memory is stored under:

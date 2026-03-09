@@ -119,8 +119,27 @@ A job case is a portable JSON file — shareable, versionable, replayable.
 
 - Actions are always namespaced: `module.action`
 - Payloads use intent fields, not raw wire payloads
-- Interpolation uses `${step.<id>.response.<field>}` or `${jsonpath(step:<id>, <path>)}`
+- Interpolation uses `${step.<id>.response.<field>}`, `${step.<id>.exports.<field>}`, or `${jsonpath(step:<id>, <path>)}`
 - Same-run values should flow through `step.*` or `run.*`, not persistent memory
+
+If an action generates a same-run workflow value that should not be faked into the transport response, return it under `exports` and reference it from later steps:
+
+```js
+return {
+  response: { ok: true },
+  exports: { generatedId },
+};
+```
+
+```json
+{
+  "id": "consume",
+  "action": "example.consume",
+  "payload": {
+    "generatedId": "${step.publish.exports.generatedId}"
+  }
+}
+```
 
 ### Job-level HTTP defaults
 

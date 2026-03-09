@@ -67,6 +67,10 @@ const me = await api.get('/me');
 This keeps auth/session continuity automatic while keeping shared request config explicit
 at both the job and handler levels.
 
+If a login or setup action also generates a same-run workflow value that later steps need,
+return it under `exports` so the job can reference `step.<id>.exports.*` without inventing
+response fields or persisting secrets in `memory`.
+
 ## What belongs in a module
 
 Modules should define auth intent, not transport session mechanics.

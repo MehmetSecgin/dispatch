@@ -60,6 +60,33 @@ function traverseStrings(value: unknown, onString: (s: string, path: string) => 
   }
 }
 
+function validateStepReference(
+  issues: ValidationIssue[],
+  stepId: string,
+  currentStepIndex: number,
+  stepIndex: Map<string, number>,
+  path: string,
+  refId: string,
+  messagePrefix: string,
+): void {
+  const refIdx = stepIndex.get(refId);
+  if (refIdx == null) {
+    issues.push({
+      code: 'UNKNOWN_STEP_REFERENCE',
+      stepId,
+      path,
+      message: `${messagePrefix} '${refId}'`,
+    });
+  } else if (refIdx >= currentStepIndex) {
+    issues.push({
+      code: 'FORWARD_STEP_REFERENCE',
+      stepId,
+      path,
+      message: `Forward step reference '${refId}' is not allowed`,
+    });
+  }
+}
+
 export function validateJobCase(
   job: JobCase,
   registry?: ModuleRegistry,
@@ -239,25 +266,10 @@ export function validateJobCase(
       for (const expr of exprs) {
         if (expr.startsWith('run.')) continue;
 
-        const stepExpr = expr.match(/^step\.([^.]+)\.response\..+$/);
+        const stepExpr = expr.match(/^step\.([^.]+)\.(response|exports)\..+$/);
         if (stepExpr) {
           const refId = stepExpr[1];
-          const refIdx = stepIndex.get(refId);
-          if (refIdx == null) {
-            issues.push({
-              code: 'UNKNOWN_STEP_REFERENCE',
-              stepId: step.id,
-              path: strPath,
-              message: `Unknown step reference '${refId}'`,
-            });
-          } else if (refIdx >= i) {
-            issues.push({
-              code: 'FORWARD_STEP_REFERENCE',
-              stepId: step.id,
-              path: strPath,
-              message: `Forward step reference '${refId}' is not allowed`,
-            });
-          }
+          validateStepReference(issues, step.id, i, stepIndex, strPath, refId, 'Unknown step reference');
           continue;
         }
 

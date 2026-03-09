@@ -20,6 +20,13 @@ function runtimeContext(): RuntimeContext {
             winners: 1,
           },
         },
+        exports: {
+          generatedId: 'id-123',
+          request: {
+            id: 99,
+            tags: ['featured'],
+          },
+        },
       },
     },
   };
@@ -55,6 +62,26 @@ describe('interpolateAny', () => {
 
     expect(out).toEqual({
       title: 'Market 42 for 1X2 FullTime',
+    });
+  });
+
+  it('reads step exports for full-expression and embedded values', () => {
+    const out = interpolateAny(
+      {
+        id: '${step.market.exports.generatedId}',
+        request: '${step.market.exports.request}',
+        title: 'Event ${step.market.exports.generatedId}',
+      },
+      runtimeContext(),
+    );
+
+    expect(out).toEqual({
+      id: 'id-123',
+      request: {
+        id: 99,
+        tags: ['featured'],
+      },
+      title: 'Event id-123',
     });
   });
 });
