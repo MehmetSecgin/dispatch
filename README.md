@@ -72,6 +72,7 @@ dispatch job assert --run-id latest
 
 Release notes for maintainers live in [docs/release.md](docs/release.md).
 Agent-native product principles live in [docs/agent-native.md](docs/agent-native.md).
+HTTP auth/session behavior for module authors lives in [docs/modules/http-auth.md](docs/modules/http-auth.md).
 
 ---
 
@@ -412,6 +413,16 @@ Example shipped jobs:
   Populates durable memory under `jsonplaceholder-reference.users.user-1`.
 - `jsonplaceholder-from-memory.job.case.json`
   Declares a memory dependency and recalls the seeded user before listing posts.
+
+### Module auth flows
+
+Cookie-backed auth flows are handled by `ctx.http`, not by module-specific storage.
+
+- a login action can establish a session with `Set-Cookie`
+- later actions in the same run automatically reuse the session
+- cookies are run-scoped only and are not persisted in `memory`
+
+See [docs/modules/http-auth.md](docs/modules/http-auth.md) for the module-author contract.
 
 ### Pack and install
 
