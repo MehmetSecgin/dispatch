@@ -96,7 +96,10 @@ function summarizeSchemaPropertiesFromJson(jsonSchema: Record<string, unknown> |
 }
 
 function normalizeModuleRelativePath(input: string): string {
-  return input.replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/^\/+/, '');
+  return input
+    .replace(/\\/g, '/')
+    .replace(/^\.\/+/, '')
+    .replace(/^\/+/, '');
 }
 
 function ensureModuleSubpath(moduleDir: string, relPath: string): string {
@@ -195,6 +198,145 @@ function uniqueInstallPath(targetRoot: string, prefix: string): string {
   return path.join(targetRoot, `${prefix}${suffix}`);
 }
 
+function writeTextFiles(rootDir: string, files: Record<string, string>): void {
+  for (const [relPath, content] of Object.entries(files)) {
+    const fullPath = path.join(rootDir, relPath);
+    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    fs.writeFileSync(fullPath, content, 'utf8');
+  }
+}
+
+function createJavaScriptModuleScaffold(
+  name: string,
+  version: string,
+): {
+  manifest: ModuleManifest;
+  files: Record<string, string>;
+} {
+  return {
+    manifest: {
+      name,
+      version,
+      entry: 'index.mjs',
+      metadata: { generatedBy: 'dispatch module init' },
+    },
+    files: {
+      'index.mjs': [
+        "import { z } from 'zod';",
+        "import { defineAction, defineModule } from 'dispatchkit';",
+        '',
+        'export default defineModule({',
+        `  name: '${name}',`,
+        `  version: '${version}',`,
+        '  actions: {',
+        '    ping: defineAction({',
+        "      description: 'Ping action scaffold.',",
+        '      schema: z.object({}),',
+        '      handler: async () => ({',
+        '        response: { ok: true },',
+        "        detail: 'pong',",
+        '      }),',
+        '    }),',
+        '  },',
+        '});',
+        '',
+      ].join('\n'),
+    },
+  };
+}
+
+function createTypeScriptModuleScaffold(
+  name: string,
+  version: string,
+): {
+  manifest: ModuleManifest;
+  files: Record<string, string>;
+} {
+  return {
+    manifest: {
+      name,
+      version,
+      entry: 'dist/index.mjs',
+      metadata: { generatedBy: 'dispatch module init --typescript' },
+    },
+    files: {
+      'src/index.ts': [
+        "import { defineAction, defineModule, type ActionContext, type ActionResult } from 'dispatchkit';",
+        "import { PING_ACTIVITY } from './constants.js';",
+        "import { PingSchema, type PingPayload } from './schemas.js';",
+        '',
+        'async function ping(ctx: ActionContext, _payload: PingPayload): Promise<ActionResult> {',
+        '  ctx.artifacts.appendActivity(`${PING_ACTIVITY} ok=true`);',
+        '  return {',
+        '    response: { ok: true },',
+        "    detail: 'pong',",
+        '  };',
+        '}',
+        '',
+        'export default defineModule({',
+        `  name: '${name}',`,
+        `  version: '${version}',`,
+        '  actions: {',
+        '    ping: defineAction({',
+        "      description: 'Ping action scaffold.',",
+        '      schema: PingSchema,',
+        '      handler: ping,',
+        '    }),',
+        '  },',
+        '});',
+        '',
+      ].join('\n'),
+      'src/schemas.ts': [
+        "import { z } from 'zod';",
+        '',
+        'export const PingSchema = z.object({});',
+        '',
+        'export type PingPayload = z.infer<typeof PingSchema>;',
+        '',
+      ].join('\n'),
+      'src/constants.ts': ["export const PING_ACTIVITY = 'ping';", ''].join('\n'),
+      'tsconfig.json': `${JSON.stringify(
+        {
+          compilerOptions: {
+            target: 'ES2022',
+            module: 'NodeNext',
+            moduleResolution: 'NodeNext',
+            strict: true,
+            esModuleInterop: true,
+            resolveJsonModule: true,
+            isolatedModules: true,
+            skipLibCheck: true,
+            noEmit: true,
+          },
+          include: ['src/**/*.ts', 'tsup.config.ts'],
+        },
+        null,
+        2,
+      )}\n`,
+      'tsup.config.ts': [
+        "import { defineConfig } from 'tsup';",
+        '',
+        'export default defineConfig({',
+        "  entry: ['src/index.ts'],",
+        "  format: ['esm'],",
+        "  platform: 'node',",
+        "  target: 'node20',",
+        "  external: ['dispatchkit', 'zod'],",
+        '  clean: true,',
+        '  bundle: true,',
+        "  outDir: 'dist',",
+        '  outExtension() {',
+        '    return {',
+        "      js: '.mjs',",
+        '    };',
+        '  },',
+        '});',
+        '',
+      ].join('\n'),
+    },
+  };
+}
+
 export function registerModuleCommands(program: Command): void {
   const moduleCmd = program.command('module').description('Module operations');
 
@@ -203,45 +345,23 @@ export function registerModuleCommands(program: Command): void {
     .description('Create a new module scaffold')
     .requiredOption('--name <module>')
     .option('--version <version>', 'Module version', '0.1.0')
+    .option('--typescript', 'Generate a TypeScript + tsup scaffold')
     .requiredOption('--out <dir>')
     .action(async (cmd) => {
       const renderer = createRenderer({});
       const outDir = path.resolve(String(cmd.out));
       const name = String(cmd.name).trim();
       const version = String(cmd.version || '0.1.0').trim();
+      const useTypeScript = !!cmd.typescript;
       if (!/^[a-z0-9-]+$/.test(name)) throw new Error('Module name must match ^[a-z0-9-]+$');
       fs.mkdirSync(outDir, { recursive: true });
-      const manifest = {
-        name,
-        version,
-        entry: 'index.mjs',
-        metadata: { generatedBy: 'dispatch module init' },
-      };
-      fs.writeFileSync(path.join(outDir, 'module.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-      fs.writeFileSync(
-        path.join(outDir, 'index.mjs'),
-        [
-          "import { z } from 'zod';",
-          "import { defineAction, defineModule } from 'dispatchkit';",
-          '',
-          'export default defineModule({',
-          `  name: '${name}',`,
-          `  version: '${version}',`,
-          '  actions: {',
-          '    ping: defineAction({',
-          "      description: 'Ping action scaffold.',",
-          '      schema: z.object({}),',
-          '      handler: async () => ({',
-          "        response: { ok: true },",
-          "        detail: 'pong',",
-          '      }),',
-          '    }),',
-          '  },',
-          '});',
-          '',
-        ].join('\n'),
-        'utf8',
-      );
+      const scaffold = useTypeScript
+        ? createTypeScriptModuleScaffold(name, version)
+        : createJavaScriptModuleScaffold(name, version);
+      writeTextFiles(outDir, {
+        'module.json': `${JSON.stringify(scaffold.manifest, null, 2)}\n`,
+        ...scaffold.files,
+      });
       renderer.line(`✓ Initialized module scaffold at ${shortenHomePath(outDir)}`);
     });
 
@@ -423,7 +543,9 @@ export function registerModuleCommands(program: Command): void {
           `  Actions: ${out.actionCount}`,
           ...(out.emptyDescriptions.length > 0 ? [`  Empty descriptions: ${out.emptyDescriptions.join(', ')}`] : []),
           ...(out.jobs.length > 0 ? [`  Jobs: ${out.jobs.map((job) => `[${job.kind}] ${job.id}`).join(', ')}`] : []),
-          ...(out.jobIssues.length > 0 ? out.jobIssues.map((issue) => `  Job issue: ${issue.path}: ${issue.message}`) : []),
+          ...(out.jobIssues.length > 0
+            ? out.jobIssues.map((issue) => `  Job issue: ${issue.path}: ${issue.message}`)
+            : []),
         ],
       });
       if (!out.valid)

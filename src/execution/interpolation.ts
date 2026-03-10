@@ -1,20 +1,59 @@
 import { JSONPath } from 'jsonpath-plus';
 import { isJsonObject, type JsonObject, type JsonValue } from '../core/json.js';
 
-type RuntimeStepState = {
+/**
+ * Runtime state recorded for one previously executed step.
+ */
+interface RuntimeStepState {
+  /**
+   * Value returned from `ActionResult.response`.
+   *
+   * Later steps can reference this as `${step.<stepId>.response...}`.
+   */
   response?: JsonValue | unknown;
+
+  /**
+   * Value returned from `ActionResult.exports`.
+   *
+   * Later steps can reference this as `${step.<stepId>.exports...}`.
+   */
   exports?: JsonObject | Record<string, unknown>;
-};
+}
 const FULL_EXPR_RE = /^\$\{([^}]+)\}$/;
 
+/**
+ * Mutable run-scoped data available during interpolation and action execution.
+ */
 export interface RuntimeContext {
+  /**
+   * Absolute dispatch config directory path for the current process.
+   */
   configDir: string;
+
+  /**
+   * Workflow-level captured values and run metadata.
+   *
+   * Values written here become addressable as `${run.<name>}`.
+   */
   run: RunContext;
+
+  /**
+   * Per-step response and export state accumulated so far in this run.
+   */
   steps: Record<string, RuntimeStepState>;
 }
 
+/**
+ * Workflow-level state shared across the run.
+ *
+ * Dispatch stores captured values here, alongside a small amount of run
+ * metadata such as the CLI version and run start time.
+ */
 interface RunContext extends JsonObject {
+  /** CLI version for the current run, when known. */
   cliVersion?: string;
+
+  /** Run start timestamp in ISO-8601 format, when available. */
   startedAt?: string;
 }
 

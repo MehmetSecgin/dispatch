@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "dispatch module manifest",
+  "description": "Portable schema for dispatch module discovery manifests.",
+  "type": "object",
+  "required": ["name", "version", "entry"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[a-z0-9-]+$",
+      "description": "Module namespace. Must match defineModule({ name })."
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Module version string. Must match defineModule({ version })."
+    },
+    "entry": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Relative path to the runtime entry file, for example index.mjs or dist/index.mjs.",
+      "default": "index.mjs"
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Optional arbitrary metadata preserved for tooling and inspection output.",
+      "additionalProperties": true
+    },
+    "pack": {
+      "type": "object",
+      "description": "Optional pack-time include rules for extra runtime assets.",
+      "properties": {
+        "include": {
+          "type": "array",
+          "description": "Additional file paths, directory paths, or dir/** patterns to include when packaging a module bundle.",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true,
+  "examples": [
+    {
+      "name": "payments",
+      "version": "0.1.0",
+      "entry": "dist/index.mjs"
+    },
+    {
+      "name": "admin",
+      "version": "0.1.0",
+      "entry": "index.mjs",
+      "metadata": {
+        "generatedBy": "dispatch module init"
+      }
+    }
+  ]
+}

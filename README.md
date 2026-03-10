@@ -17,6 +17,7 @@ Dispatch is a modular CLI for running API workflows — built from the ground up
 Most CLIs are built for humans and tolerated by agents. Dispatch inverts this. The primary operator is an AI agent. The human experience is layered on top.
 
 **The flow:**
+
 ```
 developer (natural language)
   → agent reads SKILL.md
@@ -33,18 +34,18 @@ developer (natural language)
 
 ### `flow` — control flow primitives
 
-| Action | Description |
-|---|---|
-| `flow.sleep` | Pause execution for a deterministic duration |
-| `flow.poll` | Call another action repeatedly until conditions match or timeout |
+| Action       | Description                                                      |
+| ------------ | ---------------------------------------------------------------- |
+| `flow.sleep` | Pause execution for a deterministic duration                     |
+| `flow.poll`  | Call another action repeatedly until conditions match or timeout |
 
 ### `memory` — namespaced persistent state between sessions
 
-| Action | Description |
-|---|---|
-| `memory.store` | Store a value by key in a namespace |
+| Action          | Description                            |
+| --------------- | -------------------------------------- |
+| `memory.store`  | Store a value by key in a namespace    |
 | `memory.recall` | Recall a value by key from a namespace |
-| `memory.forget` | Forget one key or clear one namespace |
+| `memory.forget` | Forget one key or clear one namespace  |
 
 ---
 
@@ -98,6 +99,7 @@ The job file stays portable and explicit. The local environment stays out of git
 Release notes for maintainers live in [docs/release.md](docs/release.md).
 Agent-native product principles live in [docs/agent-native.md](docs/agent-native.md).
 HTTP auth/session behavior for module authors lives in [docs/modules/http-auth.md](docs/modules/http-auth.md).
+Packaged module-author guidance lives in [MODULE_AUTHORING.md](MODULE_AUTHORING.md) and [CONVENTIONS.md](CONVENTIONS.md).
 
 ---
 
@@ -128,15 +130,13 @@ A job case is a portable JSON file — shareable, versionable, replayable.
           "maxDurationMs": 10000,
           "conditions": {
             "mode": "ALL",
-            "rules": [
-              { "path": "$.ready", "op": "eq", "value": true }
-            ]
+            "rules": [{ "path": "$.ready", "op": "eq", "value": true }]
           },
           "store": {
             "resourceId": "$.id"
           }
         }
-      },
+      }
     ]
   }
 }
@@ -378,9 +378,7 @@ Jobs can declare explicit prerequisites:
 ```json
 {
   "dependencies": {
-    "modules": [
-      { "name": "jsonplaceholder", "version": "^0.2.0" }
-    ],
+    "modules": [{ "name": "jsonplaceholder", "version": "^0.2.0" }],
     "memory": [
       {
         "namespace": "jsonplaceholder-reference",
@@ -437,6 +435,7 @@ dispatch job run --case my.job.case.json --json  # machine mode
 The `next` field tells the agent what to do after every command. No reasoning required.
 
 **Exit codes:**
+
 - `0` success
 - `1` internal error
 - `2` usage/input error — do not retry
@@ -466,6 +465,7 @@ Written on both success and failure. Assert offline. Replay without network.
 ## Commands
 
 ### Jobs
+
 ```bash
 dispatch job validate --case <path>
 dispatch job run --case <path> [--resolve-deps]
@@ -484,6 +484,7 @@ dispatch job batch-inspect --batch-id <id|latest>
 ```
 
 ### Modules
+
 ```bash
 dispatch module list
 dispatch module inspect <name>
@@ -507,6 +508,7 @@ dispatch memory inspect --namespace <name>
 ```
 
 ### Utilities
+
 ```bash
 dispatch doctor
 dispatch self-check

@@ -10,10 +10,36 @@ import { getDefaultHttpPoolRegistry, HttpPoolRegistry } from '../services/http-p
 import { CookieJar, mergeCookieHeaders } from './cookies.js';
 import type { HttpMethod, HttpRequestOptions, HttpResponse } from './types.js';
 
+/**
+ * Transport defaults applied to requests made through `HttpTransport`.
+ */
 export interface HttpTransportOptions {
+  /**
+   * Shared base URL for relative request paths.
+   *
+   * When set, handlers can call `ctx.http.get('/items')` and dispatch will
+   * resolve the request against this base URL.
+   */
   baseUrl?: string;
+
+  /**
+   * Shared default headers applied to every request.
+   *
+   * Per-request headers override these values.
+   */
   defaultHeaders?: Record<string, string>;
+
+  /**
+   * Reserved toggle for future artifact verbosity controls.
+   */
   verboseArtifacts?: boolean;
+
+  /**
+   * Optional pool registry override.
+   *
+   * Dispatch uses this internally for advanced embedding and tests. Module
+   * authors typically rely on the default shared registry.
+   */
   poolRegistry?: HttpPoolRegistry;
 }
 
@@ -22,17 +48,34 @@ interface HttpTransportSharedState {
   poolRegistry?: HttpPoolRegistry;
 }
 
+/**
+ * HTTP client used inside action handlers.
+ *
+ * The transport is usually provided through `ctx.http`. It is preconfigured
+ * from the job's top-level `http` block, keeps a shared cookie jar across the
+ * whole run, and records requests and responses into run artifacts
+ * automatically.
+ */
 export class HttpTransport {
   private readonly debug = debugNs('http');
   private shared: HttpTransportSharedState;
 
-  constructor(private readonly artifacts: RunArtifacts, private readonly opts?: HttpTransportOptions) {
+  constructor(
+    private readonly artifacts: RunArtifacts,
+    private readonly opts?: HttpTransportOptions,
+  ) {
     this.shared = {
       cookieJar: new CookieJar(),
       poolRegistry: opts?.poolRegistry,
     };
   }
 
+  /**
+   * Create a derived transport with narrowed defaults.
+   *
+   * The derived transport shares the same cookie jar, connection pools, and
+   * artifact recording as the original transport.
+   */
   withDefaults(opts?: Pick<HttpTransportOptions, 'baseUrl' | 'defaultHeaders'>): HttpTransport {
     const derived = new HttpTransport(this.artifacts, {
       ...this.opts,
@@ -44,26 +87,37 @@ export class HttpTransport {
     return derived;
   }
 
+  /** Send a GET request. Relative URLs resolve against `baseUrl`. */
   async get(url: string, opts?: HttpRequestOptions): Promise<HttpResponse> {
     return this.request('GET', url, opts);
   }
 
+  /** Send a POST request with an optional JSON body. */
   async post(url: string, body?: unknown, opts?: HttpRequestOptions): Promise<HttpResponse> {
     return this.request('POST', url, { ...opts, body });
   }
 
+  /** Send a PUT request with an optional JSON body. */
   async put(url: string, body?: unknown, opts?: HttpRequestOptions): Promise<HttpResponse> {
     return this.request('PUT', url, { ...opts, body });
   }
 
+  /** Send a PATCH request with an optional JSON body. */
   async patch(url: string, body?: unknown, opts?: HttpRequestOptions): Promise<HttpResponse> {
     return this.request('PATCH', url, { ...opts, body });
   }
 
+  /** Send a DELETE request. */
   async delete(url: string, opts?: HttpRequestOptions): Promise<HttpResponse> {
     return this.request('DELETE', url, opts);
   }
 
+  /**
+   * Send a request with explicit method control.
+   *
+   * URLs may be absolute, or relative when the transport has a `baseUrl`.
+   * Request and response artifacts are recorded automatically.
+   */
   async request(
     method: HttpMethod,
     url: string,
@@ -177,6 +231,13 @@ export class HttpTransport {
     return { status: code, body: responseJson };
   }
 
+  /**
+   * Assert that a response has a 2xx status code.
+   *
+   * On success, this returns `response.body`, which is typically the parsed
+   * JSON body from the transport. On failure, it throws an error that includes
+   * the provided label and the response status code.
+   */
   requireOk(response: HttpResponse, label: string): unknown {
     if (response.status < 200 || response.status > 299) {
       this.debug('requireOk failed label=%s status=%d', label, response.status);
