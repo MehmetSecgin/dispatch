@@ -35,6 +35,7 @@ interface ValidationResult {
 }
 
 const EXPR_RE = /\$\{([^}]+)\}/g;
+const ENV_VAR_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 function extractExpressions(s: string): string[] {
   const out: string[] = [];
@@ -283,69 +284,33 @@ export function validateJobCase(
     }
 
     traverseStrings(payload, (s, strPath) => {
-      const exprs = extractExpressions(s);
-      if (s.includes('${') && exprs.length === 0) {
-        issues.push({
-          code: 'MALFORMED_INTERPOLATION',
-          stepId: step.id,
-          path: strPath,
-          message: `Malformed interpolation expression in '${s}'`,
-        });
-        return;
-      }
-
-      for (const expr of exprs) {
-        if (expr.startsWith('run.')) continue;
-
-        const stepExpr = expr.match(/^step\.([^.]+)\.(response|exports)\..+$/);
-        if (stepExpr) {
-          const refId = stepExpr[1];
-          validateStepReference(issues, step.id, i, stepIndex, strPath, refId, 'Unknown step reference');
-          continue;
-        }
-
-        const jpExpr = expr.match(/^jsonpath\((.+),\s*(.+)\)$/);
-        if (jpExpr) {
-          const scope = jpExpr[1].trim();
-          if (scope === 'run') continue;
-          if (scope.startsWith('step:')) {
-            const refId = scope.slice('step:'.length);
-            const refIdx = stepIndex.get(refId);
-            if (refIdx == null) {
-              issues.push({
-                code: 'UNKNOWN_STEP_REFERENCE',
-                stepId: step.id,
-                path: strPath,
-                message: `Unknown step reference '${refId}' in jsonpath`,
-              });
-            } else if (refIdx >= i) {
-              issues.push({
-                code: 'FORWARD_STEP_REFERENCE',
-                stepId: step.id,
-                path: strPath,
-                message: `Forward step reference '${refId}' in jsonpath is not allowed`,
-              });
-            }
-            continue;
-          }
-          issues.push({
-            code: 'INVALID_INTERPOLATION',
-            stepId: step.id,
-            path: strPath,
-            message: `Unsupported jsonpath scope '${scope}'`,
-          });
-          continue;
-        }
-
-        issues.push({
-          code: 'INVALID_INTERPOLATION',
-          stepId: step.id,
-          path: strPath,
-          message: `Unsupported interpolation expression '${expr}'`,
-        });
-      }
+      validateInterpolationString({
+        value: s,
+        path: strPath,
+        stepId: step.id,
+        currentStepIndex: i,
+        stepIndex,
+        issues,
+        allowStepReferences: true,
+        allowJsonPathStepScope: true,
+      });
     });
   }
+
+  traverseStrings(
+    job.http,
+    (s, strPath) => {
+      validateInterpolationString({
+        value: s,
+        path: strPath,
+        issues,
+        stepIndex,
+        allowStepReferences: false,
+        allowJsonPathStepScope: false,
+      });
+    },
+    'http',
+  );
 
   if (registry) {
     for (const conflict of registry.listConflicts()) {
@@ -356,4 +321,114 @@ export function validateJobCase(
   }
 
   return { valid: issues.length === 0, issues, warnings };
+}
+
+function validateInterpolationString(input: {
+  value: string;
+  path: string;
+  issues: ValidationIssue[];
+  stepIndex: Map<string, number>;
+  stepId?: string;
+  currentStepIndex?: number;
+  allowStepReferences: boolean;
+  allowJsonPathStepScope: boolean;
+}): void {
+  const exprs = extractExpressions(input.value);
+  if (input.value.includes('${') && exprs.length === 0) {
+    input.issues.push({
+      code: 'MALFORMED_INTERPOLATION',
+      stepId: input.stepId,
+      path: input.path,
+      message: `Malformed interpolation expression in '${input.value}'`,
+    });
+    return;
+  }
+
+  for (const expr of exprs) {
+    if (expr.startsWith('run.')) continue;
+
+    const envExpr = expr.match(/^env\.(.+)$/);
+    if (envExpr) {
+      if (ENV_VAR_NAME_RE.test(envExpr[1])) continue;
+      input.issues.push({
+        code: 'INVALID_INTERPOLATION',
+        stepId: input.stepId,
+        path: input.path,
+        message: `Invalid environment variable reference '${expr}'`,
+      });
+      continue;
+    }
+
+    const stepExpr = expr.match(/^step\.([^.]+)\.(response|exports)\..+$/);
+    if (stepExpr) {
+      if (!input.allowStepReferences) {
+        input.issues.push({
+          code: 'INVALID_INTERPOLATION',
+          stepId: input.stepId,
+          path: input.path,
+          message: `Step references are not supported in '${input.path}'`,
+        });
+        continue;
+      }
+      validateStepReference(
+        input.issues,
+        input.stepId ?? '<job>',
+        input.currentStepIndex ?? 0,
+        input.stepIndex,
+        input.path,
+        stepExpr[1],
+        'Unknown step reference',
+      );
+      continue;
+    }
+
+    const jpExpr = expr.match(/^jsonpath\((.+),\s*(.+)\)$/);
+    if (jpExpr) {
+      const scope = jpExpr[1].trim();
+      if (scope === 'run') continue;
+      if (scope.startsWith('step:')) {
+        if (!input.allowJsonPathStepScope) {
+          input.issues.push({
+            code: 'INVALID_INTERPOLATION',
+            stepId: input.stepId,
+            path: input.path,
+            message: `Step jsonpath scope is not supported in '${input.path}'`,
+          });
+          continue;
+        }
+        const refId = scope.slice('step:'.length);
+        const refIdx = input.stepIndex.get(refId);
+        if (refIdx == null) {
+          input.issues.push({
+            code: 'UNKNOWN_STEP_REFERENCE',
+            stepId: input.stepId,
+            path: input.path,
+            message: `Unknown step reference '${refId}' in jsonpath`,
+          });
+        } else if (refIdx >= (input.currentStepIndex ?? 0)) {
+          input.issues.push({
+            code: 'FORWARD_STEP_REFERENCE',
+            stepId: input.stepId,
+            path: input.path,
+            message: `Forward step reference '${refId}' in jsonpath is not allowed`,
+          });
+        }
+        continue;
+      }
+      input.issues.push({
+        code: 'INVALID_INTERPOLATION',
+        stepId: input.stepId,
+        path: input.path,
+        message: `Unsupported jsonpath scope '${scope}'`,
+      });
+      continue;
+    }
+
+    input.issues.push({
+      code: 'INVALID_INTERPOLATION',
+      stepId: input.stepId,
+      path: input.path,
+      message: `Unsupported interpolation expression '${expr}'`,
+    });
+  }
 }

@@ -111,6 +111,56 @@ describe('validateJobCase (flow-only)', () => {
     expect(result.issues.some(i => i.code === 'INVALID_CAPTURE' && i.message.includes('non-empty dot segments'))).toBe(true);
   });
 
+  it('accepts env interpolation in payloads and job http config', () => {
+    const job = parseJob({
+      schemaVersion: 1,
+      jobType: 'env-http-and-payload',
+      http: {
+        baseUrl: '${env.DISPATCH_HTTP_BASE_URL}',
+        defaultHeaders: {
+          'x-context': '${env.DISPATCH_HTTP_X_CONTEXT}',
+          'x-started-at': '${run.startedAt}',
+        },
+      },
+      scenario: {
+        steps: [
+          {
+            id: 's1',
+            action: 'flow.sleep',
+            payload: {
+              duration: '${env.DISPATCH_SLEEP_DURATION}',
+            },
+          },
+        ],
+      },
+    });
+
+    const result = validateJobCase(job);
+    expect(result.valid).toBe(true);
+    expect(result.issues).toHaveLength(0);
+  });
+
+  it('rejects step interpolation inside job http config', () => {
+    const job = parseJob({
+      schemaVersion: 1,
+      jobType: 'http-step-ref',
+      http: {
+        defaultHeaders: {
+          'x-id': '${step.publish.exports.generatedId}',
+        },
+      },
+      scenario: {
+        steps: [
+          { id: 'publish', action: 'flow.sleep', payload: { duration: '1s' } },
+        ],
+      },
+    });
+
+    const result = validateJobCase(job);
+    expect(result.valid).toBe(false);
+    expect(result.issues.some(i => i.code === 'INVALID_INTERPOLATION' && i.path === 'http.defaultHeaders.x-id')).toBe(true);
+  });
+
   it('fails invalid flow.poll target and jsonpath', async () => {
     const job = parseJob({
       schemaVersion: 1,

@@ -32,6 +32,11 @@ function deepGetByPath(obj: unknown, dotPath: string): unknown {
 
 function evaluateExpression(exprRaw: string, ctx: RuntimeContext): unknown {
   const expr = String(exprRaw).trim();
+  if (expr.startsWith('env.')) {
+    const envName = expr.slice(4);
+    const value = process.env[envName];
+    return value == null ? '' : value;
+  }
   if (expr.startsWith('run.')) {
     const value = deepGetByPath(ctx.run, expr.slice(4));
     return value == null ? '' : value;

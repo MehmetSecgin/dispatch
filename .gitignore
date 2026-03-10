@@ -6,3 +6,5 @@ dist/
 jobs/imported/
 Briefing.md
 .claude/
+.envrc
+.dispatch.local.env

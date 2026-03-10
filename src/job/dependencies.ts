@@ -17,7 +17,8 @@ type DependencyIssueCode =
   | 'MODULE_VERSION_MISMATCH'
   | 'MISSING_MEMORY_DEPENDENCY'
   | 'INVALID_FILL_JOB'
-  | 'MISSING_HTTP_DEPENDENCY';
+  | 'MISSING_HTTP_DEPENDENCY'
+  | 'INVALID_HTTP_CONFIG';
 
 export interface DependencyIssue {
   code: DependencyIssueCode;
@@ -53,6 +54,12 @@ export interface DeclaredMemoryDependencySummary {
 
 export interface DeclaredHttpDependencySummary {
   path: string;
+}
+
+export interface EffectiveHttpInspection {
+  valid: boolean;
+  effectiveHttp?: JobHttpConfig;
+  issues: DependencyIssue[];
 }
 
 interface FillResolution {
@@ -183,6 +190,51 @@ export function resolveEffectiveJobHttpConfig(
 ): JobHttpConfig | undefined {
   if (!runtime) return job.http;
   return resolveJobHttpConfig(job.http, runtime);
+}
+
+function httpConfigIssueFromError(error: unknown): DependencyIssue {
+  const message = error instanceof Error ? error.message : String(error);
+  const pathMatch = message.match(/^Job http\.([A-Za-z0-9_.-]+) must (.+)$/);
+  if (pathMatch) {
+    return {
+      code: 'INVALID_HTTP_CONFIG',
+      dependencyType: 'http',
+      httpPath: pathMatch[1],
+      message: `must ${pathMatch[2]}`,
+    };
+  }
+  const defaultHeadersMatch = message.match(/^Job http\.defaultHeaders must (.+)$/);
+  if (defaultHeadersMatch) {
+    return {
+      code: 'INVALID_HTTP_CONFIG',
+      dependencyType: 'http',
+      httpPath: 'defaultHeaders',
+      message: `must ${defaultHeadersMatch[1]}`,
+    };
+  }
+  return {
+    code: 'INVALID_HTTP_CONFIG',
+    dependencyType: 'http',
+    message,
+  };
+}
+
+export function inspectEffectiveJobHttpConfig(
+  job: JobCase,
+  runtime?: RuntimeContext,
+): EffectiveHttpInspection {
+  try {
+    return {
+      valid: true,
+      effectiveHttp: resolveEffectiveJobHttpConfig(job, runtime),
+      issues: [],
+    };
+  } catch (error) {
+    return {
+      valid: false,
+      issues: [httpConfigIssueFromError(error)],
+    };
+  }
 }
 
 export function inspectJobDependencies(

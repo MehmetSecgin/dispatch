@@ -58,6 +58,10 @@ npm install -g dispatchkit
 dispatch self-check
 dispatch doctor
 
+# Optional: repo-local env loading with direnv
+cp .envrc.example .envrc
+direnv allow
+
 # Run the built-in flow example
 dispatch job validate --case jobs/flow-sleep.job.case.json
 dispatch job run --case jobs/flow-sleep.job.case.json
@@ -69,6 +73,27 @@ dispatch job validate --case modules/jsonplaceholder/jobs/jsonplaceholder-kitche
 dispatch job run --case modules/jsonplaceholder/jobs/jsonplaceholder-kitchen-sink.job.case.json
 dispatch job assert --run-id latest
 ```
+
+### Local Environment Setup With `direnv`
+
+For local development, the recommended workflow is to keep environment-specific values
+outside the job file and load them automatically when you enter the repo.
+
+1. Copy `.envrc.example` to `.envrc`
+2. Replace placeholder values with your local values
+3. Run `direnv allow`
+
+```bash
+cp .envrc.example .envrc
+direnv allow
+```
+
+This gives you one repo-local environment bundle for:
+
+- secret values such as usernames and passwords
+- non-secret values such as base URLs and shared headers
+
+The job file stays portable and explicit. The local environment stays out of git.
 
 Release notes for maintainers live in [docs/release.md](docs/release.md).
 Agent-native product principles live in [docs/agent-native.md](docs/agent-native.md).
@@ -119,8 +144,11 @@ A job case is a portable JSON file — shareable, versionable, replayable.
 
 - Actions are always namespaced: `module.action`
 - Payloads use intent fields, not raw wire payloads
-- Interpolation uses `${step.<id>.response.<field>}`, `${step.<id>.exports.<field>}`, or `${jsonpath(step:<id>, <path>)}`
+- Interpolation uses `${env.NAME}`, `${step.<id>.response.<field>}`, `${step.<id>.exports.<field>}`, or `${jsonpath(step:<id>, <path>)}`
 - Same-run values should flow through `step.*` or `run.*`, not persistent memory
+
+`env.*` is the bridge between repo-local setup and portable jobs. With `direnv`, the values
+come from `.envrc`; in CI they can come from normal environment injection.
 
 If an action generates a same-run workflow value that should not be faked into the transport response, return it under `exports` and reference it from later steps:
 
@@ -174,6 +202,28 @@ Jobs can declare shared request context once at the top level:
 - `http.defaultHeaders` applies to all requests in the run unless a handler narrows or overrides them
 - Cookies/session continuity still live in the shared run transport
 - Handlers can still derive narrower clients with `ctx.http.withDefaults(...)`
+
+If those values differ by developer machine, environment, or CI target, keep the job explicit
+and resolve the actual values from `${env.*}`:
+
+```json
+{
+  "http": {
+    "baseUrl": "${env.DISPATCH_HTTP_BASE_URL}",
+    "defaultHeaders": {
+      "x-client": "dispatch",
+      "x-context": "${env.DISPATCH_HTTP_X_CONTEXT}"
+    }
+  }
+}
+```
+
+This is the recommended way to connect `direnv` to shared request config.
+
+If the env-backed values are missing or resolve to invalid HTTP config:
+
+- `dispatch job validate` fails before execution
+- `dispatch job run` also fails before execution
 
 If a job intentionally relies on shared HTTP context, declare that explicitly in dependencies:
 
@@ -230,8 +280,54 @@ Jobs can bind named credential profiles without putting plaintext secrets in the
 - `dispatch job validate` fails if a step is missing a required credential binding
 - `dispatch job run` also fails early if required environment variables are missing
 
+This pairs naturally with `direnv`: the job stores only env var names, while `.envrc`
+or CI provides the actual secret values.
+
 If an action expects a credential contract, declare it with `credentialSchema` so `module inspect`
 and `schema action --print` can surface it.
+
+### Putting It Together
+
+The intended setup is:
+
+1. `direnv` loads environment-specific values into your shell
+2. the job reads non-secret values through `${env.*}`
+3. the job binds secrets through `credentials.<name>.fromEnv`
+4. steps still bind credentials explicitly with `credential`
+
+Example:
+
+```json
+{
+  "http": {
+    "baseUrl": "${env.DISPATCH_HTTP_BASE_URL}",
+    "defaultHeaders": {
+      "x-context": "${env.DISPATCH_HTTP_X_CONTEXT}"
+    }
+  },
+  "credentials": {
+    "admin": {
+      "fromEnv": {
+        "username": "DISPATCH_ADMIN_USERNAME",
+        "password": "DISPATCH_ADMIN_PASSWORD"
+      }
+    }
+  },
+  "scenario": {
+    "steps": [
+      {
+        "id": "login",
+        "action": "admin.login",
+        "credential": "admin",
+        "payload": {}
+      }
+    ]
+  }
+}
+```
+
+That keeps the job inspectable and portable while removing the need for repeated manual
+`export ...` commands.
 
 ### Memory and job kinds
 
