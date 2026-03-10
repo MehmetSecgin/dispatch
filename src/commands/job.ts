@@ -41,8 +41,8 @@ import { loadActionDefaults } from '../execution/action-defaults.js';
 import { HttpPoolRegistry } from '../services/http-pool.js';
 import { inspectBatchSummary, resolveBatchSummaryPath } from '../job/batch-inspect.js';
 import {
+  inspectEffectiveJobHttpConfig,
   inspectJobDependencies,
-  resolveEffectiveJobHttpConfig,
   resolveJobDependencies,
   summarizeDeclaredHttpDependencies,
   summarizeDeclaredMemoryDependencies,
@@ -141,6 +141,7 @@ export function registerJobCommands(
       const casePath = resolveCasePath(cmd.case);
       const jc = loadCase(casePath);
       const { registry, warnings } = await loadModuleRegistry();
+      const runtime = defaultRuntime(deps.cliVersion);
       const validation = validateJobCase(jc, registry, loadActionDefaults(), {
         jobKind: inferJobFileKind(casePath),
       });
@@ -182,15 +183,33 @@ export function registerJobCommands(
         return;
       }
 
+      const httpConfigCheck = inspectEffectiveJobHttpConfig(jc, runtime);
+      if (!httpConfigCheck.valid) {
+        const details = {
+          casePath,
+          issues: httpConfigCheck.issues,
+          warnings: [...warnings, ...validation.warnings],
+        };
+        renderer.render({
+          json: jsonErrorEnvelope(cliErrorFromCode('USAGE_ERROR', 'job dependency preflight failed', details)),
+          human: [
+            `✗ Missing prerequisites for ${userPathDisplay(String(cmd.case))}`,
+            ...httpConfigCheck.issues.map((issue) => `- ${formatDependencyIssue(issue)}`),
+          ],
+        });
+        process.exitCode = exitCodeForCliError(cliErrorFromCode('USAGE_ERROR', 'job dependency preflight failed'));
+        return;
+      }
+
       let dependencyCheck = inspectJobDependencies(jc, {
         registry,
-        configDir: defaultRuntime(deps.cliVersion).configDir,
-        effectiveHttp: resolveEffectiveJobHttpConfig(jc, defaultRuntime(deps.cliVersion)),
+        configDir: runtime.configDir,
+        effectiveHttp: httpConfigCheck.effectiveHttp,
       });
       if (cmd.resolveDeps && !dependencyCheck.valid) {
         dependencyCheck = await resolveJobDependencies(jc, {
           registry,
-          configDir: defaultRuntime(deps.cliVersion).configDir,
+          configDir: runtime.configDir,
           cliVersion: deps.cliVersion,
         });
       }
@@ -272,6 +291,7 @@ export function registerJobCommands(
       const casePath = resolveCasePath(cmd.case);
       const jc = loadCase(casePath);
       const { registry, warnings } = await loadModuleRegistry();
+      const runtime = defaultRuntime(deps.cliVersion);
       const validation = validateJobCase(jc, registry, loadActionDefaults(), {
         jobKind: inferJobFileKind(casePath),
       });
@@ -289,6 +309,23 @@ export function registerJobCommands(
           `Credential preflight failed for ${userPathDisplay(cmd.case)}: ` +
             `${first.path ? `${first.path}: ` : ''}${first.message}`,
         );
+      }
+      const httpConfigCheck = inspectEffectiveJobHttpConfig(jc, runtime);
+      if (!httpConfigCheck.valid) {
+        const first = httpConfigCheck.issues[0];
+        throw new Error(
+          `Dependency preflight failed for ${userPathDisplay(cmd.case)}: ` +
+            `${first.httpPath ? `http.${first.httpPath}: ` : ''}${first.message}`,
+        );
+      }
+      const dependencyCheck = inspectJobDependencies(jc, {
+        registry,
+        configDir: runtime.configDir,
+        effectiveHttp: httpConfigCheck.effectiveHttp,
+      });
+      if (!dependencyCheck.valid) {
+        const first = dependencyCheck.issues[0];
+        throw new Error(`Dependency preflight failed for ${userPathDisplay(cmd.case)}: ${formatDependencyIssue(first)}`);
       }
 
       const batchId = `${nowStamp()}-job-batch-${randomHex(4)}`;
@@ -894,13 +931,18 @@ export function registerJobCommands(
         jobKind: inferJobFileKind(casePath),
       });
       const credentialCheck = inspectJobCredentials(parsed.data, registry);
+      const httpConfigCheck = inspectEffectiveJobHttpConfig(parsed.data, defaultRuntime(deps.cliVersion));
       const dependencyCheck = inspectJobDependencies(parsed.data, {
         registry,
         configDir: defaultRuntime(deps.cliVersion).configDir,
+        effectiveHttp: httpConfigCheck.effectiveHttp,
       });
+      const dependencyIssuesForOutput = httpConfigCheck.valid
+        ? dependencyCheck.issues
+        : dependencyCheck.issues.filter((issue) => issue.dependencyType !== 'http');
       const declaredHttpDeps = summarizeDeclaredHttpDependencies(parsed.data);
       const declaredMemoryDeps = summarizeDeclaredMemoryDependencies(parsed.data);
-      const valid = result.valid && credentialCheck.valid && dependencyCheck.valid;
+      const valid = result.valid && credentialCheck.valid && httpConfigCheck.valid && dependencyCheck.valid;
       if (!!opts.json) {
         if (valid) {
           renderer.jsonOut({ valid: true, casePath, warnings: [...warnings, ...result.warnings] });
@@ -911,7 +953,7 @@ export function registerJobCommands(
                 casePath,
                 issues: result.issues,
                 credentialIssues: credentialCheck.issues,
-                dependencyIssues: dependencyCheck.issues,
+                dependencyIssues: [...httpConfigCheck.issues, ...dependencyIssuesForOutput],
                 warnings: [...warnings, ...result.warnings],
               }),
               dependencyCheck.next,
@@ -946,7 +988,8 @@ export function registerJobCommands(
               return `- ${step}${p}${issue.message}`;
             }),
             ...credentialCheck.issues.map((issue) => `- [${issue.stepId}] ${formatCredentialIssue(issue)}`),
-            ...dependencyCheck.issues.map((issue) => `- ${formatDependencyIssue(issue)}`),
+            ...httpConfigCheck.issues.map((issue) => `- ${formatDependencyIssue(issue)}`),
+            ...dependencyIssuesForOutput.map((issue) => `- ${formatDependencyIssue(issue)}`),
             ...formatNextActionsHuman(dependencyCheck.next, { color: isColorEnabled(opts) }),
           ],
         });

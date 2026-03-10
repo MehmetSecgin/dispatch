@@ -419,6 +419,119 @@ describe('job CLI', () => {
     }));
   });
 
+  it('fails job validate when env-backed http config is missing', () => {
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-job-cli-test-'));
+    const casePath = path.join(homeDir, 'env-http-missing.job.case.json');
+    fs.writeFileSync(
+      casePath,
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          jobType: 'env-http-missing',
+          http: {
+            baseUrl: '${env.DISPATCH_HTTP_BASE_URL}',
+            defaultHeaders: {
+              'x-context': '${env.DISPATCH_HTTP_X_CONTEXT}',
+            },
+          },
+          dependencies: {
+            http: {
+              required: ['baseUrl', 'defaultHeaders.x-context'],
+            },
+          },
+          scenario: {
+            steps: [
+              {
+                id: 'sleep',
+                action: 'flow.sleep',
+                payload: {
+                  duration: '1ms',
+                },
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+
+    const result = runCli(['job', 'validate', '--case', casePath], { HOME: homeDir });
+
+    expect(result.status).toBe(2);
+    expect(result.json).toEqual(expect.objectContaining({
+      status: 'error',
+      code: 'USAGE_ERROR',
+      message: 'job case validation failed',
+      details: expect.objectContaining({
+        dependencyIssues: expect.arrayContaining([
+          expect.objectContaining({
+            dependencyType: 'http',
+            httpPath: 'baseUrl',
+            message: expect.stringContaining('must resolve to a non-empty string'),
+          }),
+        ]),
+      }),
+    }));
+  });
+
+  it('resolves env-backed job http config and writes it to the resolved case artifact', () => {
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-job-cli-test-'));
+    const casePath = path.join(homeDir, 'env-http-resolved.job.case.json');
+    fs.writeFileSync(
+      casePath,
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          jobType: 'env-http-resolved',
+          http: {
+            baseUrl: '${env.DISPATCH_HTTP_BASE_URL}',
+            defaultHeaders: {
+              'x-context': '${env.DISPATCH_HTTP_X_CONTEXT}',
+              'x-started-at': '${run.startedAt}',
+            },
+          },
+          scenario: {
+            steps: [
+              {
+                id: 'sleep',
+                action: 'flow.sleep',
+                payload: {
+                  duration: '1ms',
+                },
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+
+    const result = runCli(['job', 'run', '--case', casePath], {
+      HOME: homeDir,
+      DISPATCH_HTTP_BASE_URL: 'https://api.example.test',
+      DISPATCH_HTTP_X_CONTEXT: 'example-context',
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.json).toEqual(expect.objectContaining({
+      status: 'SUCCESS',
+      runDir: expect.any(String),
+    }));
+
+    const resolvedCase = JSON.parse(fs.readFileSync(path.join(result.json?.runDir, 'job.case.resolved.json'), 'utf8'));
+    expect(resolvedCase.http).toEqual({
+      baseUrl: 'https://api.example.test',
+      defaultHeaders: {
+        'x-context': 'example-context',
+        'x-started-at': expect.any(String),
+      },
+    });
+  });
+
   it('applies job-level http defaults across steps and keeps cookies run-scoped', async () => {
     fs.mkdirSync(HTTP_FIXTURE_MODULE_DIR, { recursive: true });
     fs.writeFileSync(

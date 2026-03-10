@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+
+# Copy to .envrc, replace the placeholder values, then run:
+#   direnv allow
+#
+# Keep real values out of git. This file is an example only.
+# The job reads non-secret values through ${env.*} and secret values through
+# credentials.<name>.fromEnv mappings.
+
+export DISPATCH_HTTP_BASE_URL="https://api.example.com"
+export DISPATCH_HTTP_X_CONTEXT="example-context"
+
+export DISPATCH_ADMIN_USERNAME="replace-me"
+export DISPATCH_ADMIN_PASSWORD="replace-me"

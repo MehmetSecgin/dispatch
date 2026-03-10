@@ -16,11 +16,16 @@ import {
   shortenHomePath,
   uiSymbol,
 } from '../output/renderer.js';
-import { defaultUserModulesDir, inferJobFileKind } from '../data/run-data.js';
+import { defaultRuntime, defaultUserModulesDir, inferJobFileKind } from '../data/run-data.js';
 import { cliErrorFromCode, exitCodeForCliError, jsonErrorEnvelope } from '../core/errors.js';
 import { JobCaseSchema } from '../core/schema.js';
 import { validateJobCase } from '../job/validator.js';
-import { inspectHttpDependencies, summarizeDeclaredHttpDependencies, summarizeDeclaredMemoryDependencies } from '../job/dependencies.js';
+import {
+  inspectEffectiveJobHttpConfig,
+  inspectHttpDependencies,
+  summarizeDeclaredHttpDependencies,
+  summarizeDeclaredMemoryDependencies,
+} from '../job/dependencies.js';
 import { inspectJobCredentials } from '../job/credentials.js';
 import { loadActionDefaults } from '../execution/action-defaults.js';
 
@@ -368,13 +373,22 @@ export function registerModuleCommands(program: Command): void {
         const validated = validateJobCase(parsedJob.data, registry, loadActionDefaults(), {
           jobKind: inferJobFileKind(job.path),
         });
-        const httpDependencyCheck = inspectHttpDependencies(parsedJob.data);
+        const httpConfigCheck = inspectEffectiveJobHttpConfig(parsedJob.data, defaultRuntime('module-validate'));
+        const httpDependencyCheck = httpConfigCheck.valid
+          ? inspectHttpDependencies(parsedJob.data, httpConfigCheck.effectiveHttp)
+          : { valid: false, issues: [] };
         const credentialCheck = inspectJobCredentials(parsedJob.data, registry);
         return [
           ...validated.issues.map((issue) => ({
             jobId: job.id,
             kind: job.kind,
             path: `${job.id}:${issue.path || '<root>'}`,
+            message: issue.message,
+          })),
+          ...httpConfigCheck.issues.map((issue) => ({
+            jobId: job.id,
+            kind: job.kind,
+            path: `${job.id}:http.${issue.httpPath || '<root>'}`,
             message: issue.message,
           })),
           ...httpDependencyCheck.issues.map((issue) => ({

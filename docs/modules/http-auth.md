@@ -9,6 +9,9 @@ when they need narrower defaults inside a run.
 Jobs can also bind env-backed credential profiles so auth actions do not need plaintext
 usernames/passwords in job payloads.
 
+For local development, those values are commonly loaded through `direnv`. Modules should
+still think in terms of explicit job `http` and `credentials`, not ambient env access.
+
 ## What module authors should assume
 
 - Cookies are captured from `Set-Cookie` response headers.
@@ -80,6 +83,21 @@ For stable request config that is shared across the whole run, declare it in the
 }
 ```
 
+Jobs may load those job-level HTTP values through `${env.*}` so the workflow stays portable
+while repo-local setup stays outside git:
+
+```json
+{
+  "http": {
+    "baseUrl": "${env.DISPATCH_HTTP_BASE_URL}",
+    "defaultHeaders": {
+      "x-client": "dispatch",
+      "x-context": "${env.DISPATCH_HTTP_X_CONTEXT}"
+    }
+  }
+}
+```
+
 If your module intentionally relies on job-level HTTP config, make the requirement explicit:
 
 ```json
@@ -93,6 +111,15 @@ If your module intentionally relies on job-level HTTP config, make the requireme
 ```
 
 That keeps transport ownership at the job level while making missing config fail as a preflight error instead of a later request-time surprise.
+
+In practice, the setup usually looks like this:
+
+1. `direnv` loads repo-local values into the shell
+2. the job resolves `http` from `${env.*}`
+3. the job resolves secrets from `credentials.<name>.fromEnv`
+4. the module reads `ctx.http` and `ctx.credential`
+
+That keeps module code free of project-specific env conventions.
 
 For stable request config that is shared across multiple calls inside one handler/helper,
 derive a scoped client explicitly:
@@ -132,6 +159,7 @@ Avoid:
 - reading raw `Set-Cookie` headers in module code
 - saving cookies into `memory`
 - reading ad hoc env vars directly inside handlers when a credential profile would do
+- reading `${env.*}` values directly in module code instead of letting the job supply `http`
 - building manual `Cookie` headers unless there is a very specific non-session need
 - rebuilding the same base URL and shared headers by hand for every request when a scoped
   `ctx.http.withDefaults(...)` client would do

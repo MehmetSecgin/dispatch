@@ -33,6 +33,33 @@ function runtimeContext(): RuntimeContext {
 }
 
 describe('interpolateAny', () => {
+  it('reads environment variables for full-expression and embedded values', () => {
+    const prevBaseUrl = process.env.DISPATCH_HTTP_BASE_URL;
+    const prevContext = process.env.DISPATCH_HTTP_X_CONTEXT;
+    process.env.DISPATCH_HTTP_BASE_URL = 'https://api.example.test';
+    process.env.DISPATCH_HTTP_X_CONTEXT = 'example-context';
+
+    try {
+      const out = interpolateAny(
+        {
+          baseUrl: '${env.DISPATCH_HTTP_BASE_URL}',
+          title: 'context=${env.DISPATCH_HTTP_X_CONTEXT}',
+        },
+        runtimeContext(),
+      );
+
+      expect(out).toEqual({
+        baseUrl: 'https://api.example.test',
+        title: 'context=example-context',
+      });
+    } finally {
+      if (prevBaseUrl === undefined) delete process.env.DISPATCH_HTTP_BASE_URL;
+      else process.env.DISPATCH_HTTP_BASE_URL = prevBaseUrl;
+      if (prevContext === undefined) delete process.env.DISPATCH_HTTP_X_CONTEXT;
+      else process.env.DISPATCH_HTTP_X_CONTEXT = prevContext;
+    }
+  });
+
   it('preserves raw objects for full-expression values', () => {
     const out = interpolateAny(
       {
