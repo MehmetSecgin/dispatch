@@ -23,9 +23,7 @@ const MemoryKeySchema = z
     }
   });
 
-const StepActionSchema = z
-  .string()
-  .regex(/^[a-z0-9-]+\.[a-z0-9-]+$/, 'Action must be namespaced: <module>.<action>');
+const StepActionSchema = z.string().regex(/^[a-z0-9-]+\.[a-z0-9-]+$/, 'Action must be namespaced: <module>.<action>');
 
 const StepCaptureSchema = z.record(z.string(), z.string());
 const EnvVarNameSchema = z
@@ -98,7 +96,6 @@ export const JobCaseSchema = z.object({
 });
 
 export type JobCase = z.infer<typeof JobCaseSchema>;
-export type JobStep = z.infer<typeof StepSchema> & { id: string };
 export type JobHttpConfig = z.infer<typeof JobHttpSchema>;
 export type CredentialProfile = z.infer<typeof CredentialProfileSchema>;
 export type JobDependencies = z.infer<typeof JobDependenciesSchema>;
@@ -108,6 +105,63 @@ export type MemoryDependencyFill = z.infer<typeof MemoryDependencyFillSchema>;
 export type MemoryNamespace = z.infer<typeof MemoryNamespaceSchema>;
 export type MemoryKey = z.infer<typeof MemoryKeySchema>;
 export type HttpDependency = z.infer<typeof HttpDependencySchema>;
+
+/**
+ * Normalized job step passed to action handlers at runtime.
+ */
+export interface JobStep {
+  /**
+   * Stable step identifier.
+   *
+   * If a job omits `id`, dispatch assigns `step_<n>` during normalization
+   * before validation and execution continue.
+   */
+  id: string;
+
+  /**
+   * Optional relative scheduling offset for time-based runners.
+   *
+   * Exactly one of `atRelative` or `atAbsolute` may be set.
+   */
+  atRelative?: string;
+
+  /**
+   * Optional absolute schedule timestamp for time-based runners.
+   *
+   * Exactly one of `atRelative` or `atAbsolute` may be set.
+   */
+  atAbsolute?: string;
+
+  /**
+   * Fully qualified action key in `<module>.<action>` form.
+   */
+  action: string;
+
+  /**
+   * Raw step payload from the job file before schema validation.
+   *
+   * Dispatch interpolates this object and then validates it against the
+   * action's declared Zod schema before calling the handler.
+   */
+  payload?: Record<string, unknown>;
+
+  /**
+   * Optional mapping of workflow-level names to step-derived values.
+   *
+   * Each value is a path such as `response.id` or `exports.generatedId`.
+   * Successful captures are written into `runtime.run` and become available as
+   * `${run.<name>}` in later steps.
+   */
+  capture?: Record<string, string>;
+
+  /**
+   * Optional credential profile name bound by the job.
+   *
+   * When present, dispatch resolves `credentials.<name>.fromEnv` before the
+   * handler runs and exposes the resulting object at `ctx.credential`.
+   */
+  credential?: string;
+}
 
 export function normalizeSteps(job: JobCase): JobStep[] {
   return job.scenario.steps.map((s, idx) => ({ ...s, id: s.id ?? `step_${idx + 1}` }));

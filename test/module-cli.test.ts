@@ -49,6 +49,9 @@ function runCliHuman(args: string[], env?: NodeJS.ProcessEnv) {
 
 afterEach(() => {
   for (const entry of fs.readdirSync(os.tmpdir())) {
+    if (entry.startsWith('dispatch-module-init-test-')) {
+      fs.rmSync(path.join(os.tmpdir(), entry), { recursive: true, force: true });
+    }
     if (entry.startsWith('dispatch-module-validate-test-')) {
       fs.rmSync(path.join(os.tmpdir(), entry), { recursive: true, force: true });
     }
@@ -60,6 +63,37 @@ afterEach(() => {
 });
 
 describe('module CLI', () => {
+  it('initializes a TypeScript scaffold with build-oriented defaults', () => {
+    const moduleDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-module-init-test-'));
+    const result = runCliHuman(['module', 'init', '--name', 'ts-fixture', '--out', moduleDir, '--typescript']);
+    const manifest = JSON.parse(fs.readFileSync(path.join(moduleDir, 'module.json'), 'utf8'));
+    const sourceIndex = fs.readFileSync(path.join(moduleDir, 'src', 'index.ts'), 'utf8');
+    const sourceSchemas = fs.readFileSync(path.join(moduleDir, 'src', 'schemas.ts'), 'utf8');
+    const sourceConstants = fs.readFileSync(path.join(moduleDir, 'src', 'constants.ts'), 'utf8');
+    const tsconfig = fs.readFileSync(path.join(moduleDir, 'tsconfig.json'), 'utf8');
+    const tsupConfig = fs.readFileSync(path.join(moduleDir, 'tsup.config.ts'), 'utf8');
+
+    expect(result.status).toBe(0);
+    expect(manifest).toEqual({
+      name: 'ts-fixture',
+      version: '0.1.0',
+      entry: 'dist/index.mjs',
+      metadata: {
+        generatedBy: 'dispatch module init --typescript',
+      },
+    });
+    expect(sourceIndex).toContain('type ActionContext, type ActionResult');
+    expect(sourceIndex).toContain('ctx.artifacts.appendActivity(`${PING_ACTIVITY} ok=true`)');
+    expect(sourceSchemas).toContain('export const PingSchema = z.object({});');
+    expect(sourceConstants).toContain("export const PING_ACTIVITY = 'ping';");
+    expect(tsconfig).toContain('"module": "NodeNext"');
+    expect(tsupConfig).toContain("entry: ['src/index.ts']");
+    expect(tsupConfig).toContain("external: ['dispatchkit', 'zod']");
+    expect(tsupConfig).toContain("outDir: 'dist'");
+    expect(tsupConfig).toContain("js: '.mjs'");
+    expect(fs.existsSync(path.join(moduleDir, 'index.mjs'))).toBe(false);
+  });
+
   it('lets plain node import the repo jsonplaceholder module entry', () => {
     const moduleEntry = pathToFileURL(path.join(REPO_ROOT, 'modules', 'jsonplaceholder', 'index.mjs')).href;
     const out = spawnSync(
@@ -89,12 +123,14 @@ describe('module CLI', () => {
 
     expect(result.status).toBe(0);
     expect(result.json?.actions).toBeUndefined();
-    expect(result.json?.modules).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        name: expect.any(String),
-        actions: expect.any(Array),
-      }),
-    ]));
+    expect(result.json?.modules).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: expect.any(String),
+          actions: expect.any(Array),
+        }),
+      ]),
+    );
   });
 
   it('accepts the module name as a positional argument for inspect', () => {
@@ -148,7 +184,7 @@ describe('module CLI', () => {
         "      description: 'Publish a fixture payload.',",
         '      schema: z.object({ name: z.string().min(1) }),',
         '      exportsSchema: z.object({ generatedId: z.string(), eventName: z.string() }),',
-        "      credentialSchema: z.object({ username: z.string(), password: z.string() }),",
+        '      credentialSchema: z.object({ username: z.string(), password: z.string() }),',
         "      handler: async (_ctx, payload) => ({ response: { ok: true }, exports: { generatedId: 'id-123', eventName: payload.name } }),",
         '    }),',
         '  },',
@@ -188,24 +224,26 @@ describe('module CLI', () => {
     expect(inspectHuman.stdout).toContain('credentials: username:string, password:string');
 
     expect(schemaResult.status).toBe(0);
-    expect(schemaResult.json).toEqual(expect.objectContaining({
-      action: `${EXPORT_FIXTURE_MODULE_NAME}.publish`,
-      inputSchema: expect.objectContaining({
-        type: 'object',
-      }),
-      exportsSchema: expect.objectContaining({
-        type: 'object',
-        properties: expect.objectContaining({
-          generatedId: expect.objectContaining({ type: 'string' }),
+    expect(schemaResult.json).toEqual(
+      expect.objectContaining({
+        action: `${EXPORT_FIXTURE_MODULE_NAME}.publish`,
+        inputSchema: expect.objectContaining({
+          type: 'object',
+        }),
+        exportsSchema: expect.objectContaining({
+          type: 'object',
+          properties: expect.objectContaining({
+            generatedId: expect.objectContaining({ type: 'string' }),
+          }),
+        }),
+        credentialSchema: expect.objectContaining({
+          type: 'object',
+          properties: expect.objectContaining({
+            username: expect.objectContaining({ type: 'string' }),
+          }),
         }),
       }),
-      credentialSchema: expect.objectContaining({
-        type: 'object',
-        properties: expect.objectContaining({
-          username: expect.objectContaining({ type: 'string' }),
-        }),
-      }),
-    }));
+    );
   });
 
   it('separates case jobs and seed jobs in human inspect output', () => {
@@ -405,7 +443,11 @@ describe('module CLI', () => {
       )}\n`,
       'utf8',
     );
-    fs.writeFileSync(path.join(moduleDir, 'dist', 'index.mjs'), "export default { name: 'pack-fixture', version: '1.0.0', actions: {} };\n", 'utf8');
+    fs.writeFileSync(
+      path.join(moduleDir, 'dist', 'index.mjs'),
+      "export default { name: 'pack-fixture', version: '1.0.0', actions: {} };\n",
+      'utf8',
+    );
     fs.writeFileSync(path.join(moduleDir, 'jobs', 'example.job.case.json'), '{}\n', 'utf8');
     fs.writeFileSync(path.join(moduleDir, 'README.md'), '# pack fixture\n', 'utf8');
     fs.writeFileSync(path.join(moduleDir, 'runtime-extra', 'cert.pem'), 'fixture-cert\n', 'utf8');
@@ -422,13 +464,15 @@ describe('module CLI', () => {
       .filter(Boolean);
 
     expect(result.status).toBe(0);
-    expect(files).toEqual(expect.arrayContaining([
-      'module.json',
-      'dist/index.mjs',
-      'jobs/example.job.case.json',
-      'README.md',
-      'runtime-extra/cert.pem',
-    ]));
+    expect(files).toEqual(
+      expect.arrayContaining([
+        'module.json',
+        'dist/index.mjs',
+        'jobs/example.job.case.json',
+        'README.md',
+        'runtime-extra/cert.pem',
+      ]),
+    );
     expect(files).not.toContain('src/index.ts');
     expect(files).not.toContain('tsconfig.json');
     expect(files).not.toContain('tsup.config.ts');
@@ -455,14 +499,14 @@ describe('module CLI', () => {
       path.join(moduleDir, 'dist', 'index.mjs'),
       [
         `import { z } from ${ZOD_IMPORT};`,
-        "export default {",
+        'export default {',
         "  name: 'install-fixture',",
         "  version: '1.0.0',",
         '  actions: {',
-        "    ping: {",
+        '    ping: {',
         "      description: 'Ping action.',",
         '      schema: z.object({}),',
-        "      handler: async () => ({ response: { ok: true } }),",
+        '      handler: async () => ({ response: { ok: true } }),',
         '    },',
         '  },',
         '};',
@@ -493,7 +537,9 @@ describe('module CLI', () => {
     expect(fs.existsSync(path.join(installDir, 'obsolete.txt'))).toBe(false);
     expect(fs.existsSync(staleTmp)).toBe(false);
     expect(
-      fs.readdirSync(installedRoot).some((entry) => entry.startsWith('.tmp-install-') || entry.startsWith('.tmp-backup-')),
+      fs
+        .readdirSync(installedRoot)
+        .some((entry) => entry.startsWith('.tmp-install-') || entry.startsWith('.tmp-backup-')),
     ).toBe(false);
   });
 });
