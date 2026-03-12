@@ -34,7 +34,7 @@ async function main(): Promise<void> {
   program
     .name('dispatch')
     .description('Deterministic dispatch CLI with flow-first orchestration')
-    .version(CLI_VERSION)
+    .version(CLI_VERSION, '-V, --cli-version', 'Output CLI version')
     .option('--llms', 'Print compact command manifest for agent discovery', false)
     .option('--json', 'Output machine JSON only', false)
     .option('--verbose', 'Show extended human output', false)

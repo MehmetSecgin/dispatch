@@ -2,8 +2,9 @@ import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vitest';
+import { startRegistryFixture } from './helpers/registry-fixture.ts';
 
 const THIS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(THIS_DIR, '..');
@@ -45,6 +46,33 @@ function runCliHuman(args: string[], env?: NodeJS.ProcessEnv) {
     stderr: out.stderr,
     stdout: out.stdout,
   };
+}
+
+async function runCliHumanAsync(args: string[], env?: NodeJS.ProcessEnv) {
+  const child = spawn(process.execPath, ['--import', 'tsx', 'src/cli.ts', ...args], {
+    cwd: REPO_ROOT,
+    env: {
+      ...process.env,
+      ...env,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  let stdout = '';
+  let stderr = '';
+  child.stdout.on('data', (chunk) => {
+    stdout += chunk.toString();
+  });
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk.toString();
+  });
+
+  const status = await new Promise<number | null>((resolve, reject) => {
+    child.on('error', reject);
+    child.on('close', (code) => resolve(code));
+  });
+
+  return { status, stdout, stderr };
 }
 
 afterEach(() => {
@@ -116,6 +144,39 @@ describe('module CLI', () => {
 
     expect(out.status).toBe(0);
     expect(out.stdout.trim()).toBe('jsonplaceholder');
+  });
+
+  it('installs a module from the configured registry with env-interpolated auth', async () => {
+    const fixture = await startRegistryFixture({
+      moduleName: `zz-registry-fixture-${process.pid}`,
+      version: '1.2.3',
+      authToken: 'token-123',
+    });
+
+    try {
+      const installResult = await runCliHumanAsync(
+        ['module', 'install', '--name', fixture.moduleName, '--version', fixture.version],
+        {
+        HOME: fixture.homeDir,
+        DISPATCH_TEST_REGISTRY_TOKEN: 'token-123',
+        },
+      );
+      const inspectResult = runCli(['module', 'inspect', fixture.moduleName], {
+        HOME: fixture.homeDir,
+        DISPATCH_TEST_REGISTRY_TOKEN: 'token-123',
+      });
+      const installDir = path.join(fixture.homeDir, '.dispatch', 'modules', `${fixture.moduleName}@${fixture.version}`);
+
+      expect(installResult.status).toBe(0);
+      expect(installResult.stdout).toContain(`Installed ${fixture.moduleName}@${fixture.version}`);
+      expect(fs.existsSync(path.join(installDir, 'module.json'))).toBe(true);
+      expect(inspectResult.status).toBe(0);
+      expect(inspectResult.json?.name).toBe(fixture.moduleName);
+      expect(inspectResult.json?.version).toBe(fixture.version);
+      expect(fixture.authHeaders).toContain('Bearer token-123');
+    } finally {
+      await fixture.stop();
+    }
   });
 
   it('omits the duplicate top-level actions array from module list JSON', () => {

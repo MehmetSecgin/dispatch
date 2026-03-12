@@ -1,10 +1,11 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { resolveMemoryPath } from '../src/modules/builtin/memory/store.ts';
+import { startRegistryFixture } from './helpers/registry-fixture.ts';
 
 const REPO_ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const FIXTURE_MODULE_NAME = `zz-memory-deps-fixture-${process.pid}`;
@@ -14,13 +15,14 @@ const FIXTURE_HTTP_CASE_PATH = path.join(FIXTURE_MODULE_DIR, 'jobs', 'requires-h
 const MEMORY_CONFIG_DIR = path.join(os.tmpdir(), `dispatch-memory-config-${process.pid}`);
 const SDK_IMPORT = JSON.stringify(pathToFileURL(path.join(REPO_ROOT, 'src', 'index.ts')).href);
 
-function runCli(args: string[]) {
+function runCli(args: string[], env?: NodeJS.ProcessEnv) {
   const out = spawnSync(process.execPath, ['--import', 'tsx', 'src/cli.ts', '--json', ...args], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
     env: {
       ...process.env,
       HOME: path.dirname(MEMORY_CONFIG_DIR),
+      ...env,
     },
   });
 
@@ -29,6 +31,40 @@ function runCli(args: string[]) {
     stderr: out.stderr,
     stdout: out.stdout.trim(),
     json: out.stdout.trim() ? JSON.parse(out.stdout.trim()) : null,
+  };
+}
+
+async function runCliAsync(args: string[], env?: NodeJS.ProcessEnv) {
+  const child = spawn(process.execPath, ['--import', 'tsx', 'src/cli.ts', '--json', ...args], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      HOME: path.dirname(MEMORY_CONFIG_DIR),
+      ...env,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  let stdout = '';
+  let stderr = '';
+  child.stdout.on('data', (chunk) => {
+    stdout += chunk.toString();
+  });
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk.toString();
+  });
+
+  const status = await new Promise<number | null>((resolve, reject) => {
+    child.on('error', reject);
+    child.on('close', (code) => resolve(code));
+  });
+
+  return {
+    status,
+    stderr,
+    stdout: stdout.trim(),
+    json: stdout.trim() ? JSON.parse(stdout.trim()) : null,
   };
 }
 
@@ -248,6 +284,63 @@ describe('job dependency preflight', () => {
       name: 'User 7',
       role: 'trader',
     });
+  });
+
+  it('fetches missing pinned modules from the registry when --resolve-deps is set', async () => {
+    const fixture = await startRegistryFixture({
+      moduleName: `zz-remote-job-fixture-${process.pid}`,
+      version: '2.0.0',
+    });
+    const caseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-remote-case-'));
+    const casePath = path.join(caseDir, 'remote-fetch.job.case.json');
+    fs.writeFileSync(
+      casePath,
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          jobType: 'remote-fetch-case',
+          dependencies: {
+            modules: [
+              {
+                name: fixture.moduleName,
+                version: fixture.version,
+              },
+            ],
+          },
+          scenario: {
+            steps: [
+              {
+                id: 'remote',
+                action: `${fixture.moduleName}.ping`,
+                payload: {},
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+
+    try {
+      const result = await runCliAsync(['job', 'run', '--case', casePath, '--resolve-deps'], {
+        HOME: fixture.homeDir,
+      });
+
+      expect(result.status).toBe(0);
+      expect(result.json).toEqual(
+        expect.objectContaining({
+          status: 'SUCCESS',
+        }),
+      );
+      expect(
+        fs.existsSync(path.join(fixture.homeDir, '.dispatch', 'modules', `${fixture.moduleName}@${fixture.version}`, 'module.json')),
+      ).toBe(true);
+    } finally {
+      fs.rmSync(caseDir, { recursive: true, force: true });
+      await fixture.stop();
+    }
   });
 
   it('reports missing required http config during validate', () => {

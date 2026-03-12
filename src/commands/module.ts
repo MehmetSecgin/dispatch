@@ -2,9 +2,12 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Command } from 'commander';
+import { loadConfig } from '../config/loader.js';
 import { loadModuleRegistry, moduleInfo, hashDirectory } from '../modules/index.js';
 import { loadModuleFromDir, loadModules } from '../modules/loader.js';
+import { basicInstalledModuleValidation, installPreparedModuleDir } from '../modules/install.js';
 import { ModuleManifest, ModuleManifestSchema } from '../modules/manifest.js';
+import { fetchModuleFromRegistry } from '../modules/remote.js';
 import { ModuleRegistry } from '../modules/registry.js';
 import { schemaToJsonSchema } from '../modules/schema-contracts.js';
 import { readJson, requireFile } from '../utils/fs-json.js';
@@ -173,29 +176,6 @@ function stageModuleBundle(moduleDir: string, stagingDir: string, manifest: Modu
     fs.mkdirSync(path.dirname(dst), { recursive: true });
     fs.copyFileSync(src, dst);
   }
-}
-
-function basicInstalledModuleValidation(moduleDir: string): ModuleManifest {
-  const manifestPath = path.join(moduleDir, 'module.json');
-  if (!fs.existsSync(manifestPath)) throw new Error('Bundle missing module.json at root');
-  const manifest = ModuleManifestSchema.parse(readJson(manifestPath));
-  const entryPath = ensureModuleSubpath(moduleDir, manifest.entry || 'index.mjs');
-  if (!fs.existsSync(entryPath) || !fs.statSync(entryPath).isFile()) {
-    throw new Error(`Bundle entry file missing: ${manifest.entry || 'index.mjs'}`);
-  }
-  return manifest;
-}
-
-function cleanupStaleInstallDirs(targetRoot: string): void {
-  for (const entry of fs.readdirSync(targetRoot)) {
-    if (!entry.startsWith('.tmp-install-') && !entry.startsWith('.tmp-backup-')) continue;
-    fs.rmSync(path.join(targetRoot, entry), { recursive: true, force: true });
-  }
-}
-
-function uniqueInstallPath(targetRoot: string, prefix: string): string {
-  const suffix = `${Date.now()}-${process.pid}-${Math.random().toString(16).slice(2, 8)}`;
-  return path.join(targetRoot, `${prefix}${suffix}`);
 }
 
 function writeTextFiles(rootDir: string, files: Record<string, string>): void {
@@ -644,67 +624,65 @@ export function registerModuleCommands(program: Command): void {
   moduleCmd
     .command('install')
     .description('Install module bundle into user module directory')
-    .requiredOption('--bundle <bundle.dpmod.zip>')
+    .option('--bundle <bundle.dpmod.zip>')
+    .option('--name <module>', 'Registry module name')
+    .option('--version <version>', 'Registry module version')
     .action(async (cmd) => {
-      const renderer = createRenderer({});
-      const bundle = path.resolve(cmd.bundle);
-      requireFile(bundle, 'bundle');
-      const targetRoot = defaultUserModulesDir();
-      fs.mkdirSync(targetRoot, { recursive: true });
-      const lockDir = path.join(targetRoot, '.install.lock');
-      try {
-        fs.mkdirSync(lockDir);
-      } catch {
-        throw new Error('Another module install is already in progress');
+      const opts = program.opts();
+      const renderer = createRenderer({ json: !!opts.json, color: isColorEnabled(opts) });
+      const hasBundle = typeof cmd.bundle === 'string' && String(cmd.bundle).trim().length > 0;
+      const hasName = typeof cmd.name === 'string' && String(cmd.name).trim().length > 0;
+      const hasVersion = typeof cmd.version === 'string' && String(cmd.version).trim().length > 0;
+
+      if ((hasName && !hasVersion) || (!hasName && hasVersion)) {
+        throw new Error('Provide both --name and --version for registry installs');
       }
-      try {
-        cleanupStaleInstallDirs(targetRoot);
-        const tmp = fs.mkdtempSync(path.join(targetRoot, '.tmp-install-'));
-        let installDir: string | null = null;
-        let backupDir: string | null = null;
+      if ((hasBundle && hasName) || (hasBundle && hasVersion)) {
+        throw new Error('Provide either --bundle or --name with --version, not both');
+      }
+      if (!hasBundle && !hasName) {
+        throw new Error('Provide either --bundle <bundle.dpmod.zip> or --name <module> --version <version>');
+      }
 
-        const unzip = findUnzipBinary();
-        if (unzip === 'unzip') {
-          const r = spawnSync('unzip', ['-q', '-o', bundle, '-d', tmp], { encoding: 'utf8' });
-          if (r.status !== 0) throw new Error(`unzip failed: ${r.stderr || r.stdout}`);
-        } else {
-          throw new Error('unzip install not supported on this platform in current build');
-        }
-
-        const manifest = basicInstalledModuleValidation(tmp);
-        installDir = path.join(targetRoot, `${manifest.name}@${manifest.version}`);
-
-        if (fs.existsSync(installDir)) {
-          backupDir = uniqueInstallPath(targetRoot, '.tmp-backup-');
-          fs.renameSync(installDir, backupDir);
-        }
-
+      if (hasBundle) {
+        const bundle = path.resolve(String(cmd.bundle));
+        requireFile(bundle, 'bundle');
+        const tmp = fs.mkdtempSync(path.join(path.dirname(bundle), '.dispatch-install-'));
         try {
-          fs.renameSync(tmp, installDir);
-        } catch (err) {
-          if (backupDir && fs.existsSync(backupDir) && !fs.existsSync(installDir)) {
-            fs.renameSync(backupDir, installDir);
-            backupDir = null;
+          const unzip = findUnzipBinary();
+          if (unzip === 'unzip') {
+            const r = spawnSync('unzip', ['-q', '-o', bundle, '-d', tmp], { encoding: 'utf8' });
+            if (r.status !== 0) throw new Error(`unzip failed: ${r.stderr || r.stdout}`);
+          } else {
+            throw new Error('unzip install not supported on this platform in current build');
           }
-          throw err;
-        }
 
-        if (backupDir) {
-          fs.rmSync(backupDir, { recursive: true, force: true });
-          backupDir = null;
+          const { manifest, installDir } = installPreparedModuleDir(tmp);
+          renderer.render({
+            json: { name: manifest.name, version: manifest.version, installDir },
+            human: `✓ Installed ${manifest.name}@${manifest.version} -> ${shortenHomePath(installDir)}`,
+          });
+        } finally {
+          fs.rmSync(tmp, { recursive: true, force: true });
         }
-
-        renderer.line(`✓ Installed ${manifest.name}@${manifest.version} -> ${shortenHomePath(installDir)}`);
-        fs.rmSync(tmp, { recursive: true, force: true });
-      } catch (err) {
-        throw err;
-      } finally {
-        for (const entry of fs.readdirSync(targetRoot)) {
-          if (!entry.startsWith('.tmp-install-') && !entry.startsWith('.tmp-backup-')) continue;
-          fs.rmSync(path.join(targetRoot, entry), { recursive: true, force: true });
-        }
-        fs.rmSync(lockDir, { recursive: true, force: true });
+        return;
       }
+
+      const { config, warnings } = loadConfig();
+      if (!config.registry) {
+        throw new Error('No registry configured. Add a registry to dispatch.config.json or ~/.dispatch/config.json.');
+      }
+
+      const name = String(cmd.name).trim();
+      const version = String(cmd.version).trim();
+      const installDir = await fetchModuleFromRegistry(name, version, config.registry);
+      renderer.render({
+        json: { warnings, name, version, installDir },
+        human: [
+          ...warnings.map((warning) => `${uiSymbol('warning', isColorEnabled(opts))} ${warning}`),
+          `✓ Installed ${name}@${version} -> ${shortenHomePath(installDir)}`,
+        ],
+      });
     });
 
   moduleCmd

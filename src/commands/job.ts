@@ -142,21 +142,21 @@ export function registerJobCommands(
       const jc = loadCase(casePath);
       const { registry, warnings } = await loadModuleRegistry();
       const runtime = defaultRuntime(deps.cliVersion);
-      const validation = validateJobCase(jc, registry, loadActionDefaults(), {
+      const actionDefaults = loadActionDefaults();
+      const initialValidation = validateJobCase(jc, cmd.resolveDeps ? undefined : registry, actionDefaults, {
         jobKind: inferJobFileKind(casePath),
       });
-      const credentialCheck = inspectJobCredentials(jc, registry, { requireEnv: true });
-      if (!validation.valid) {
+      if (!initialValidation.valid) {
         const details = {
           casePath,
-          issues: validation.issues,
-          warnings: [...warnings, ...validation.warnings],
+          issues: initialValidation.issues,
+          warnings: [...warnings, ...initialValidation.warnings],
         };
         renderer.render({
           json: jsonErrorEnvelope(cliErrorFromCode('USAGE_ERROR', 'job case validation failed', details)),
           human: [
             `✗ Invalid ${userPathDisplay(String(cmd.case))}`,
-            ...validation.issues.map((issue) => {
+            ...initialValidation.issues.map((issue) => {
               const step = issue.stepId ? `[${issue.stepId}] ` : '';
               const p = issue.path ? `${issue.path}: ` : '';
               return `- ${step}${p}${issue.message}`;
@@ -166,29 +166,13 @@ export function registerJobCommands(
         process.exitCode = exitCodeForCliError(cliErrorFromCode('USAGE_ERROR', 'job case validation failed'));
         return;
       }
-      if (!credentialCheck.valid) {
-        const details = {
-          casePath,
-          issues: credentialCheck.issues,
-          warnings: [...warnings, ...validation.warnings],
-        };
-        renderer.render({
-          json: jsonErrorEnvelope(cliErrorFromCode('USAGE_ERROR', 'job credential preflight failed', details)),
-          human: [
-            `✗ Missing credentials for ${userPathDisplay(String(cmd.case))}`,
-            ...credentialCheck.issues.map((issue) => `- [${issue.stepId}] ${formatCredentialIssue(issue)}`),
-          ],
-        });
-        process.exitCode = exitCodeForCliError(cliErrorFromCode('USAGE_ERROR', 'job credential preflight failed'));
-        return;
-      }
 
       const httpConfigCheck = inspectEffectiveJobHttpConfig(jc, runtime);
       if (!httpConfigCheck.valid) {
         const details = {
           casePath,
           issues: httpConfigCheck.issues,
-          warnings: [...warnings, ...validation.warnings],
+          warnings: [...warnings, ...initialValidation.warnings],
         };
         renderer.render({
           json: jsonErrorEnvelope(cliErrorFromCode('USAGE_ERROR', 'job dependency preflight failed', details)),
@@ -211,13 +195,14 @@ export function registerJobCommands(
           registry,
           configDir: runtime.configDir,
           cliVersion: deps.cliVersion,
+          resolveRemote: true,
         });
       }
       if (!dependencyCheck.valid) {
         const details = {
           casePath,
           issues: dependencyCheck.issues,
-          warnings: [...warnings, ...validation.warnings],
+          warnings: [...warnings, ...initialValidation.warnings],
         };
         renderer.render({
           json: jsonErrorEnvelope(
@@ -231,6 +216,50 @@ export function registerJobCommands(
           ],
         });
         process.exitCode = exitCodeForCliError(cliErrorFromCode('USAGE_ERROR', 'job dependency preflight failed'));
+        return;
+      }
+
+      const validation = cmd.resolveDeps
+        ? validateJobCase(jc, registry, actionDefaults, {
+            jobKind: inferJobFileKind(casePath),
+          })
+        : initialValidation;
+      if (!validation.valid) {
+        const details = {
+          casePath,
+          issues: validation.issues,
+          warnings: [...warnings, ...validation.warnings],
+        };
+        renderer.render({
+          json: jsonErrorEnvelope(cliErrorFromCode('USAGE_ERROR', 'job case validation failed', details)),
+          human: [
+            `✗ Invalid ${userPathDisplay(String(cmd.case))}`,
+            ...validation.issues.map((issue) => {
+              const step = issue.stepId ? `[${issue.stepId}] ` : '';
+              const p = issue.path ? `${issue.path}: ` : '';
+              return `- ${step}${p}${issue.message}`;
+            }),
+          ],
+        });
+        process.exitCode = exitCodeForCliError(cliErrorFromCode('USAGE_ERROR', 'job case validation failed'));
+        return;
+      }
+
+      const credentialCheck = inspectJobCredentials(jc, registry, { requireEnv: true });
+      if (!credentialCheck.valid) {
+        const details = {
+          casePath,
+          issues: credentialCheck.issues,
+          warnings: [...warnings, ...validation.warnings],
+        };
+        renderer.render({
+          json: jsonErrorEnvelope(cliErrorFromCode('USAGE_ERROR', 'job credential preflight failed', details)),
+          human: [
+            `✗ Missing credentials for ${userPathDisplay(String(cmd.case))}`,
+            ...credentialCheck.issues.map((issue) => `- [${issue.stepId}] ${formatCredentialIssue(issue)}`),
+          ],
+        });
+        process.exitCode = exitCodeForCliError(cliErrorFromCode('USAGE_ERROR', 'job credential preflight failed'));
         return;
       }
 
