@@ -1,10 +1,13 @@
 import path from 'node:path';
 import satisfies from 'semver/functions/satisfies.js';
+import { loadConfig } from '../config/loader.js';
 import type { JsonObject } from '../core/json.js';
 import type { JobCase, JobHttpConfig, MemoryDependency, ModuleDependency } from '../core/schema.js';
 import { loadCase } from '../data/run-data.js';
 import { recallMemoryValue } from '../modules/builtin/memory/store.js';
 import { resolveModuleJob } from '../modules/jobs.js';
+import { loadModuleFromDir } from '../modules/loader.js';
+import { fetchModuleFromRegistry } from '../modules/remote.js';
 import { ModuleRegistry } from '../modules/registry.js';
 import type { ModuleDefinition } from '../modules/types.js';
 import { HttpPoolRegistry } from '../services/http-pool.js';
@@ -122,6 +125,18 @@ function nextActionForMemoryFill(dep: MemoryDependency, fillPath: string): NextA
   return {
     command: `dispatch job run --case ${jobCommandPath(fillPath)}`,
     description: `run seed job to populate ${dep.namespace}.${dep.key}`,
+  };
+}
+
+function formatModuleSpec(dep: ModuleDependency): string {
+  return dep.version ? `${dep.name}@${dep.version}` : dep.name;
+}
+
+function nextActionForModuleInstall(dep: ModuleDependency): NextAction | null {
+  if (!dep.version) return null;
+  return {
+    command: `dispatch module install --name ${dep.name} --version ${dep.version}`,
+    description: `install required module ${dep.name}@${dep.version}`,
   };
 }
 
@@ -331,6 +346,7 @@ export async function resolveJobDependencies(
     registry: ModuleRegistry;
     configDir: string;
     cliVersion: string;
+    resolveRemote?: boolean;
     runtimeOverrides?: JsonObject;
     poolRegistry?: HttpPoolRegistry;
     stack?: string[];
@@ -338,6 +354,53 @@ export async function resolveJobDependencies(
 ): Promise<DependencyCheckResult> {
   const stack = opts.stack ?? [];
   const versionRequirements = buildVersionRequirements(job);
+
+  for (const dep of moduleDependencies(job)) {
+    const existing = preferredModuleForName(opts.registry, dep.name);
+    if (existing) {
+      if (dep.version && !satisfies(existing.version, dep.version)) {
+        return inspectJobDependencies(job, opts);
+      }
+      continue;
+    }
+    if (!opts.resolveRemote) continue;
+    if (!dep.version) {
+      return {
+        valid: false,
+        issues: [
+          {
+            code: 'MISSING_MODULE_DEPENDENCY',
+            dependencyType: 'module',
+            moduleName: dep.name,
+            message: `Required module '${dep.name}' is not loaded and cannot be fetched automatically without a pinned dependencies.modules version.`,
+          },
+        ],
+        next: [],
+      };
+    }
+
+    const { config } = loadConfig();
+    if (!config.registry) {
+      const next = nextActionForModuleInstall(dep);
+      return {
+        valid: false,
+        issues: [
+          {
+            code: 'MISSING_MODULE_DEPENDENCY',
+            dependencyType: 'module',
+            moduleName: dep.name,
+            requiredVersion: dep.version,
+            message: `Module '${formatModuleSpec(dep)}' not found locally and no registry is configured. Run 'dispatch module install --name ${dep.name} --version ${dep.version}' or add a registry to your dispatch config.`,
+          },
+        ],
+        next: next ? [next] : [],
+      };
+    }
+
+    const installedDir = await fetchModuleFromRegistry(dep.name, dep.version, config.registry);
+    const loadedModule = await loadModuleFromDir(installedDir, 'user');
+    opts.registry.register(loadedModule);
+  }
 
   for (const dep of job.dependencies?.memory ?? []) {
     const recalled = recallMemoryValue(opts.configDir, dep.namespace, dep.key);
