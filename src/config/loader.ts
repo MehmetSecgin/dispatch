@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { PROJECT_CONFIG_PATH, USER_CONFIG_PATH } from '../data/paths.js';
+import { PROJECT_CONFIG_PATH, getUserConfigPath } from '../data/paths.js';
 import { DispatchConfigSchema, type DispatchConfig } from './schema.js';
 
 export interface ConfigLoadResult {
@@ -73,7 +73,8 @@ export function loadConfig(): ConfigLoadResult {
     warnings: [...cached.warnings],
   };
 
-  const user = readConfigFile(USER_CONFIG_PATH);
+  const userConfigPath = getUserConfigPath();
+  const user = readConfigFile(userConfigPath);
   const project = readConfigFile(PROJECT_CONFIG_PATH);
   const warnings = [...user.warnings, ...project.warnings];
   const userRaw = user.value ?? {};
@@ -81,7 +82,7 @@ export function loadConfig(): ConfigLoadResult {
 
   if (isRawConfig(projectRaw.registry) && typeof projectRaw.registry.authToken === 'string') {
     warnings.push(
-      `[dispatch] Warning: authToken found in ${PROJECT_CONFIG_PATH}. Store auth tokens in ${USER_CONFIG_PATH} instead.`,
+      `[dispatch] Warning: authToken found in ${PROJECT_CONFIG_PATH}. Store auth tokens in ${userConfigPath} instead.`,
     );
   }
 

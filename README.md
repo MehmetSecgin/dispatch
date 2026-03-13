@@ -530,6 +530,19 @@ repo        ./modules/*                 project-local
 user        ~/.dispatch/modules/*       user-installed bundles
 ```
 
+Use `dispatch --home <dir> ...` to override that user state root for one invocation.
+
+## State Directory
+
+By default, dispatch stores state in `~/.dispatch` (modules, config, memory, action defaults).
+
+You can override this with:
+
+- `DISPATCH_HOME=/path/to/dir` - set the env var for persistent override (for example in `.envrc`)
+- `--home <dir>` - pass the flag for a one-off override; takes precedence over the env var
+
+**Agents:** use `DISPATCH_HOME` pointing to a project-local or temp directory to isolate dispatch state from the user's global `~/.dispatch` during automated runs.
+
 ### Build a module
 
 ```bash
@@ -671,6 +684,13 @@ module manifest explicitly adds extra runtime assets under `pack.include`.
   modules/                  — user-installed module bundles
   memory/                   — namespaced memory files
     <namespace>.json
+```
+
+For isolated project-local state during development:
+
+```bash
+dispatch --home ./.dispatch-dev module list
+dispatch --home ./.dispatch-dev job run --case ./jobs/example.job.case.json
 ```
 
 ---

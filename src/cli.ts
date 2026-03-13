@@ -21,6 +21,7 @@ import { readJson } from './utils/fs-json.js';
 import { cliErrorFromCode, exitCodeForCliError, jsonErrorEnvelope } from './core/errors.js';
 import { SKILL_VERSION } from './generated/skill-version.js';
 import { schemaToJsonSchema } from './modules/schema-contracts.js';
+import { ensureDispatchHomeDir, parseDispatchHomeArg, setDispatchHomeOverride } from './state/home.js';
 
 const CLI_VERSION = packageJson.version;
 
@@ -35,10 +36,17 @@ async function main(): Promise<void> {
     .name('dispatch')
     .description('Deterministic dispatch CLI with flow-first orchestration')
     .version(CLI_VERSION, '-V, --cli-version', 'Output CLI version')
+    .option('--home <dir>', 'Override the dispatch state directory')
     .option('--llms', 'Print compact command manifest for agent discovery', false)
     .option('--json', 'Output machine JSON only', false)
     .option('--verbose', 'Show extended human output', false)
     .option('--no-color', 'Disable colorized human output');
+
+  program.hook('preAction', (_thisCommand, actionCommand) => {
+    const opts = actionCommand.optsWithGlobals<{ home?: string }>();
+    setDispatchHomeOverride(opts.home);
+    if (opts.home) ensureDispatchHomeDir();
+  });
 
   registerJobCommands(program, { cliVersion: CLI_VERSION });
   registerModuleCommands(program);
@@ -292,6 +300,9 @@ async function main(): Promise<void> {
     });
 
   if (process.argv.includes('--llms')) {
+    const homeOverride = parseDispatchHomeArg(process.argv.slice(2));
+    setDispatchHomeOverride(homeOverride);
+    if (homeOverride) ensureDispatchHomeDir();
     const exclude = new Set(['version', 'skill-version', 'completion', 'self-check', 'help']);
     const commands = collectCommands(program, { exclude });
     const { registry } = await loadModuleRegistry();
