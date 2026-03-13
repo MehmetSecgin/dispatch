@@ -14,23 +14,33 @@ Why:
 
 ## Stable release flow
 
-1. Update `package.json` and `package-lock.json` to the target version.
-2. Run:
+1. Run the code validation checks on the intended release candidate:
 
    ```bash
    npm run check
    npm test
    npm run build
+   ```
+
+2. Update `package.json` and `package-lock.json` to the target version.
+
+3. Run the registry-aware publish dry-run on the bumped version:
+
+   ```bash
    npm publish --dry-run
    ```
 
-3. Publish:
+   Note: `npm publish --dry-run` still checks whether the version can be
+   published. If you run it before bumping off an already-published version, it
+   will fail even when the code is otherwise release-ready.
+
+4. Publish:
 
    ```bash
    npm publish
    ```
 
-4. Tag and push:
+5. Tag and push:
 
    ```bash
    git tag v<version>
@@ -82,9 +92,9 @@ When the release process is more settled, the preferred automation model is:
   - `npm run check`
   - `npm test`
   - `npm run build`
+- release-candidate workflow after the version bump:
   - `npm publish --dry-run`
 - release workflow on pushed tags like `v0.1.0`
   - publish to npm
 
 We should avoid publishing on every push to `main`.
-
