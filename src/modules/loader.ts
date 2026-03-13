@@ -1,9 +1,9 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import { ROOT_DIR } from '../data/paths.js';
+import { defaultUserModulesDir } from '../data/run-data.js';
 import { readJson } from '../utils/fs-json.js';
 import { ModuleManifest, ModuleManifestSchema } from './manifest.js';
 import { loadBuiltinModules } from './builtin/index.js';
@@ -90,7 +90,7 @@ export async function loadModules(): Promise<ModuleLoadResult> {
     }
   }
 
-  const userModulesDir = path.join(os.homedir(), '.dispatch', 'modules');
+  const userModulesDir = defaultUserModulesDir();
   for (const dir of listModuleDirs(userModulesDir)) {
     try {
       modules.push(await loadModuleFromDir(dir, 'user'));

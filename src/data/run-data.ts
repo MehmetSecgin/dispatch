@@ -1,10 +1,10 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import type { JsonObject } from '../core/json.js';
 import { JobCaseSchema } from '../core/schema.js';
 import { RuntimeContext } from '../execution/interpolation.js';
 import { ROOT_DIR } from './paths.js';
+import { getDispatchHomeDir, getDispatchStatePath } from '../state/home.js';
 
 export type JobFileKind = 'seed' | 'case';
 
@@ -124,7 +124,7 @@ export function defaultRuntime(
   },
 ): RuntimeContext {
   return {
-    configDir: opts?.configDir ?? path.join(os.homedir(), '.dispatch'),
+    configDir: opts?.configDir ?? getDispatchHomeDir(),
     run: {
       cliVersion,
       startedAt: new Date().toISOString(),
@@ -135,7 +135,7 @@ export function defaultRuntime(
 }
 
 export function defaultUserModulesDir(): string {
-  return path.join(os.homedir(), '.dispatch', 'modules');
+  return getDispatchStatePath('modules');
 }
 
 export function buildDumpSummary(meta: { cliVersion?: string; runId: string; runDir: string }): JsonObject {

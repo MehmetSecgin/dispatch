@@ -1,7 +1,7 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { isJsonObject } from '../core/json.js';
+import { getDispatchStatePath } from '../state/home.js';
 
 interface RuntimeOverrides {
   scoreDefaults?: {
@@ -18,7 +18,7 @@ interface RuntimeOverrides {
 }
 
 export function getRuntimeOverridesPath(): string {
-  return path.join(os.homedir(), '.dispatch', 'runtime-overrides.json');
+  return getDispatchStatePath('runtime-overrides.json');
 }
 
 export function loadRuntimeOverrides(configPath = getRuntimeOverridesPath()): RuntimeOverrides {

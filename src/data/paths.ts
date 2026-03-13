@@ -1,7 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
-import os from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { getDispatchStatePath } from '../state/home.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,4 +26,7 @@ function resolveRootDir(): string {
 export const ROOT_DIR = resolveRootDir();
 export const RUN_OUTPUT_DIR = path.join(ROOT_DIR, 'run-output');
 export const PROJECT_CONFIG_PATH = path.join(ROOT_DIR, 'dispatch.config.json');
-export const USER_CONFIG_PATH = path.join(os.homedir(), '.dispatch', 'config.json');
+
+export function getUserConfigPath(): string {
+  return getDispatchStatePath('config.json');
+}

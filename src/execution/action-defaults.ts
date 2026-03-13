@@ -1,12 +1,12 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { isJsonObject } from '../core/json.js';
+import { getDispatchStatePath } from '../state/home.js';
 
 export type ActionDefaultsMap = Record<string, Record<string, unknown>>;
 
 export function getActionDefaultsPath(): string {
-  return path.join(os.homedir(), '.dispatch', 'action-defaults.json');
+  return getDispatchStatePath('action-defaults.json');
 }
 
 export function loadActionDefaults(filePath = getActionDefaultsPath()): ActionDefaultsMap {
