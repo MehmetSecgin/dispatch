@@ -24,6 +24,13 @@ function isRawConfig(value: unknown): value is RawConfig {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
+function isRawConfigMap(value: unknown): value is Record<string, RawConfig> {
+  return (
+    isRawConfig(value) &&
+    Object.values(value).every((entry) => entry !== null && typeof entry === 'object' && !Array.isArray(entry))
+  );
+}
+
 function formatIssues(issues: Array<{ path: PropertyKey[]; message: string }>): string {
   return issues
     .map((issue) => `${issue.path.length > 0 ? issue.path.join('.') : '<root>'}: ${issue.message}`)
@@ -52,6 +59,8 @@ function readConfigFile(filePath: string): { value: RawConfig | null; warnings: 
 function mergeConfig(userRaw: RawConfig, projectRaw: RawConfig): RawConfig {
   const userRegistry = isRawConfig(userRaw.registry) ? userRaw.registry : null;
   const projectRegistry = isRawConfig(projectRaw.registry) ? projectRaw.registry : null;
+  const userModules = isRawConfigMap(userRaw.modules) ? userRaw.modules : null;
+  const projectModules = isRawConfigMap(projectRaw.modules) ? projectRaw.modules : null;
   const merged: RawConfig = {
     ...userRaw,
     ...projectRaw,
@@ -61,6 +70,18 @@ function mergeConfig(userRaw: RawConfig, projectRaw: RawConfig): RawConfig {
       ...(userRegistry ?? {}),
       ...(projectRegistry ?? {}),
     };
+  }
+  if (userModules || projectModules) {
+    const moduleNames = new Set([...Object.keys(userModules ?? {}), ...Object.keys(projectModules ?? {})]);
+    merged.modules = Object.fromEntries(
+      Array.from(moduleNames).map((moduleName) => [
+        moduleName,
+        {
+          ...((userModules?.[moduleName] as RawConfig | undefined) ?? {}),
+          ...((projectModules?.[moduleName] as RawConfig | undefined) ?? {}),
+        },
+      ]),
+    );
   }
   return merged;
 }

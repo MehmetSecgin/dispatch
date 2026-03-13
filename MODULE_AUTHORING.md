@@ -17,6 +17,7 @@ A dispatch module is a directory containing:
 - `src/` - optional TypeScript sources when authoring in TS
 - `jobs/` - optional shipped example jobs
 - `README.md` - optional module-specific notes
+- `SKILL.md` - optional agent operational guide
 
 Typical JavaScript layout:
 
@@ -27,6 +28,7 @@ my-module/
   schemas.mjs
   jobs/
     ping-minimal.job.case.json
+  SKILL.md
 ```
 
 Typical TypeScript layout:
@@ -45,6 +47,7 @@ my-module/
   tsconfig.json
   tsup.config.ts
   README.md
+  SKILL.md
 ```
 
 ## module.json
@@ -289,6 +292,63 @@ Example:
 ctx.artifacts.appendActivity(`create-record recordId=${id} state=${state}`);
 ```
 
+## SKILL.md
+
+`SKILL.md` is an optional agent-facing guide for a module. Include it when the
+module is used in agent-driven workflows where an agent needs to understand how
+to use or extend the module without reading source code.
+
+`SKILL.md` is distinct from `README.md` (human onboarding docs) and from
+`dispatch module inspect` (structured schema data). It provides narrative
+context that structured inspection cannot: prerequisites, common job patterns,
+cross-action sequencing, and behavioral gotchas.
+
+Recommended structure:
+
+```markdown
+# <module-name> - Agent Skill Guide
+
+<one-paragraph description of what this module does and when to use it>
+
+## Actions
+
+### `<module-name>.<action-name>`
+
+<one-sentence description>
+
+**Payload:**
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `field` | `string` | yes | description |
+| `field` | `number` | no | default: X |
+
+**Exports:** none / `{ fieldName: type - description }`
+
+**Prerequisites:** <what must be true before running this action>
+
+---
+
+## Prerequisites
+
+- `ENV_VAR` - <what it controls>
+
+## Common patterns
+
+<example multi-step sequences or usage notes>
+
+## Notes
+
+- <cross-action behavioral notes>
+- <non-obvious defaults or normalization>
+```
+
+Print a module's `SKILL.md` from the command line:
+
+```bash
+dispatch module skill --path ./my-module
+```
+
 ## Job Files
 
 Modules can ship example jobs under `jobs/`.
@@ -361,6 +421,7 @@ payments/
   tsconfig.json
   tsup.config.ts
   README.md
+  SKILL.md
 ```
 
 This layout keeps the runtime entry declarative, schema definitions centralized,

@@ -488,6 +488,7 @@ dispatch job batch-inspect --batch-id <id|latest>
 ```bash
 dispatch module list
 dispatch module inspect <name>
+dispatch module skill --path <dir>
 dispatch module validate --path <dir>
 dispatch module init --name <name> --out <dir>
 dispatch module pack --path <dir> --out <bundle.dpmod.zip>
@@ -495,6 +496,13 @@ dispatch module install --bundle <bundle.dpmod.zip>
 dispatch module uninstall --name <module>
 dispatch module override init --from <module.action> --out <dir>
 dispatch module override add --module <module> --action <action> [--path <dir>]
+```
+
+### Skills
+
+```bash
+dispatch skill install [name] [--all]
+dispatch skill update [name] [--all]
 ```
 
 ```bash

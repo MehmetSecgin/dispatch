@@ -1,140 +1,188 @@
 ---
 name: dispatch
-description: Agent-first job runner for API workflows. Use dispatch to validate and run job cases, inspect run artifacts, manage modules, and operate API workflows deterministically.
+description: Agent-first CLI for orchestrating API workflows via declarative job files. Provides context on job file syntax, module actions, step sequencing, credential profiles, and the dispatch command surface.
+license: MIT
 ---
 
-## Golden Rules
+# dispatch
 
-- Always use `--json` when consuming output programmatically
-- Validate before run — never skip `dispatch job validate`
-- Every run produces an artifact — use it before asking questions
-- `next[]` in every JSON response tells you what to do next — follow it
+`dispatch` is an agent-first CLI for orchestrating API workflows with declarative job files. Use it to validate and run portable workflows made of namespaced module actions.
 
-## Preflight
-
-Run before any session:
+## Quick loop
 
 ```bash
-dispatch self-check
-dispatch doctor
-dispatch module list
+dispatch module inspect <name>
+dispatch schema action --name <module.action> --print
+dispatch job validate --case my.job.case.json
+dispatch job run --case my.job.case.json
+dispatch job run --case my.job.case.json --resolve-deps
+dispatch --home ~/.dispatch job run --case my.job.case.json
 ```
 
-If `self-check` or `doctor` fail, stop and fix before proceeding.
+- Current CLI flag is `--case`.
+- `--resolve-deps` runs declared memory fill jobs before the main run.
+- `--home` is a global flag for changing the dispatch state directory.
 
-## Default Flow
+## Job file structure
 
-```bash
-dispatch job validate --case <path>
-dispatch job run --case <path> --json
-# follow next[] from output
-dispatch job assert --run-id <id> --json
-```
+Top-level fields:
 
-On assert PASS → done.
-On assert FAIL → go to Troubleshooting.
+- `schemaVersion`: schema version, currently `1`.
+- `jobType`: stable workflow name.
+- `http`: shared run-level transport config such as `baseUrl` and `defaultHeaders`.
+- `dependencies`: declared module, memory, or required `http` prerequisites.
+- `scenario`: executable workflow; contains `steps`.
+- `credentials`: named credential profiles.
+- `metadata`: optional non-execution context.
 
-## Troubleshooting
-
-Work through this in order. Stop when you find the cause.
-
-```bash
-# 1. Step-level failure diagnostics
-dispatch job inspect --run-id <id|latest> --step <n>
-
-# 2. Full request/response trace
-dispatch job readable --run-id <id|latest>
-
-# 3. Retry the same run
-dispatch job replay --run-id <id>
-
-# 4. Export full artifact for deep inspection
-dispatch job dump --run-id <id|latest> --out /tmp/run-dump.json
-```
-
-The `--step <n>` value comes from `failedStepIndex` in the failed run JSON envelope.
-
-## Job Case Format
+Minimal single-step job:
 
 ```json
 {
   "schemaVersion": 1,
-  "jobType": "my-workflow",
+  "jobType": "flow-sleep",
+  "scenario": {
+    "steps": [
+      { "id": "pause", "action": "flow.sleep", "payload": { "duration": "1s" } }
+    ]
+  }
+}
+```
+
+Job with shared HTTP config, dependencies, and metadata:
+
+```json
+{
+  "schemaVersion": 1,
+  "jobType": "users-fetch",
+  "http": {
+    "baseUrl": "${env.DISPATCH_HTTP_BASE_URL}",
+    "defaultHeaders": { "x-client": "dispatch" }
+  },
+  "dependencies": {
+    "http": { "required": ["baseUrl", "defaultHeaders.x-client"] }
+  },
+  "scenario": {
+    "steps": [
+      { "id": "user", "action": "example.get-user", "payload": { "id": 1 } }
+    ]
+  },
+  "metadata": { "owner": "agent" }
+}
+```
+
+## Modules and actions
+
+Modules package actions and optional shipped jobs. Actions are always namespaced as `module.action`, for example:
+
+- `flow.sleep`
+- `memory.recall`
+- `example.create-user`
+
+Use inspection instead of guessing:
+
+```bash
+dispatch module inspect jsonplaceholder
+dispatch schema action --name jsonplaceholder.get-user --print
+dispatch module validate --path ./modules/my-module
+dispatch module install --bundle my-module.dpmod.zip
+dispatch module install --name my-module --version 0.1.0
+dispatch skill install <name>
+dispatch skill install --all
+```
+
+## Step anatomy
+
+Each `scenario.steps[]` item usually contains:
+
+- `id`: unique step name used by interpolation.
+- `action`: target `module.action`.
+- `payload`: JSON input.
+- `credential`: optional credential profile name.
+- `capture`: optional map from `exports.*` to stable `run.*` names.
+
+Example step:
+
+```json
+{ "id": "login", "action": "auth.login", "credential": "apiUser", "payload": {} }
+```
+
+## Exports and capture
+
+Actions can return both `response` and `exports`.
+
+- `${step.<id>.response.<field>}` reads transport-facing response data.
+- `${step.<id>.exports.<field>}` reads same-run workflow values emitted by the action.
+- `capture` promotes a selected export into `${run.<name>}` for later steps.
+
+Multi-step job with capture:
+
+```json
+{
+  "schemaVersion": 1,
+  "jobType": "publish-followup",
   "scenario": {
     "steps": [
       {
-        "id": "step-id",
-        "action": "module.action",
-        "payload": { }
+        "id": "publish",
+        "action": "example.publish",
+        "payload": { "title": "Hello" },
+        "capture": { "workflowId": "exports.generatedId" }
+      },
+      {
+        "id": "fetch",
+        "action": "example.get",
+        "payload": { "id": "${run.workflowId}" }
       }
     ]
   }
 }
 ```
 
-- Action names are always `module.action` (e.g. `flow.sleep`, `memory.store`)
-- Interpolate previous step responses: `$.stepId.response.fieldName`
-- Validate schema: `dispatch schema case`
+Direct export wiring without capture:
 
-## Built-in Actions
-
-### flow
-- `flow.sleep` — `{ "duration": "1s" }` — pause execution
-- `flow.poll` — poll another action until conditions match
-
-### memory
-- `memory.store` — `{ "key": "...", "value": ... }` — persist a value
-- `memory.recall` — `{ "key": "...", "defaultValue": ... }` — retrieve a value
-- `memory.forget` — `{ "key": "..." }` or `{ "all": true }` — delete
-
-Inspect any action schema:
-```bash
-dispatch schema action --name flow.poll
-dispatch schema action --name memory.store
+```json
+{ "id": "fetch", "action": "example.get", "payload": { "id": "${step.publish.exports.generatedId}" } }
 ```
 
-## Output Contract
+## Credentials
 
-All `--json` responses include `next[]`:
+Credential profiles let jobs declare secret requirements without storing secret values in the file. Define profiles under `credentials`, map fields with `fromEnv`, then bind a profile to a step with `credential`.
+
+Credential-bound step:
 
 ```json
 {
-  "status": "SUCCESS",
-  "runId": "...",
-  "next": [
-    { "command": "dispatch job assert --run-id ...", "description": "verify outcomes" }
-  ]
+  "schemaVersion": 1,
+  "jobType": "auth-login",
+  "http": { "baseUrl": "${env.DISPATCH_HTTP_BASE_URL}" },
+  "credentials": {
+    "apiUser": {
+      "fromEnv": {
+        "username": "DISPATCH_API_USERNAME",
+        "password": "DISPATCH_API_PASSWORD"
+      }
+    }
+  },
+  "scenario": {
+    "steps": [
+      { "id": "login", "action": "auth.login", "credential": "apiUser", "payload": {} }
+    ]
+  }
 }
 ```
 
-`next[]` is empty on terminal states (assert PASS).
-Always follow `next[]` before deciding what to do.
+Rules:
 
-Exit codes: `0` success · `1` internal · `2` bad input · `3` retryable · `4` not found
+- `fromEnv` maps credential field names to env var names.
+- Steps still bind profiles explicitly with `credential`.
+- Keep secrets out of `payload`; actions receive resolved credentials at runtime.
 
-## Module Operations
+## Common patterns
 
-```bash
-dispatch module list                                      # see all loaded modules
-dispatch module inspect --name <module>                  # inspect one module
-dispatch module init --name <n> --out <dir>              # scaffold new module
-dispatch module validate --path <dir>                    # validate before packing
-dispatch module pack --path <dir> --out <bundle.dpmod.zip>
-dispatch module install --bundle <bundle.dpmod.zip>
-dispatch module uninstall --name <module>
-```
+- Single-step workflow: literal payload, one action, no interpolation.
+- Multi-step workflow: later steps read `${step.*}` or `${run.*}`.
+- Env-backed transport: put shared request config under top-level `http`.
+- Dependency-aware runs: declare `dependencies`; use `--resolve-deps` when you want dispatch to fill missing memory prerequisites.
 
-## Batch Runs
-
-```bash
-dispatch job run-many --case <path> --count <n> --concurrency <n>
-dispatch job batch-inspect --batch-id latest
-```
-
-## Config
-
-```bash
-dispatch runtime show                                    # global runtime overrides
-dispatch defaults show --action <module.action>         # per-action defaults
-dispatch defaults set --action <module.action> --file <path>
-```
+When writing a job, start with `module inspect` and `schema action --print`, then validate, then run.

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import packageJson from '../package.json' with { type: 'json' };
 import { registerJobCommands } from './commands/job.js';
 import { registerModuleCommands } from './commands/module.js';
+import { registerSkillCommands } from './commands/skill.js';
 import { registerDoctorCommand } from './commands/doctor.js';
 import { buildCompletionTree, collectCommands, renderCompletion } from './commands/completion.js';
 import { getActionDefaultsPath, loadActionDefaults, saveActionDefaults } from './execution/action-defaults.js';
@@ -50,6 +51,7 @@ async function main(): Promise<void> {
 
   registerJobCommands(program, { cliVersion: CLI_VERSION });
   registerModuleCommands(program);
+  registerSkillCommands(program);
   registerDoctorCommand(program, { cliVersion: CLI_VERSION });
 
   program
