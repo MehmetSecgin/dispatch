@@ -1,51 +1,49 @@
 import fs from 'node:fs';
-import { RunArtifacts } from '../artifacts/run-artifacts.js';
 import { isJsonObject } from '../core/json.js';
 import type { JsonValue } from '../core/json.js';
 import { nowIso } from '../core/time.js';
 import { sanitizeValue } from '../execution/sanitize.js';
 import { debugNs, redactDebug } from '../core/debug.js';
 import { jsonStringifySafe, writeJson } from '../utils/fs-json.js';
-import { getDefaultHttpPoolRegistry, HttpPoolRegistry } from '../services/http-pool.js';
+import { getDefaultHttpPoolRegistry } from '../services/http-pool.js';
+import type { Artifacts } from '../modules/types.js';
 import { CookieJar, mergeCookieHeaders } from './cookies.js';
 import type { HttpMethod, HttpRequestOptions, HttpResponse } from './types.js';
 
-/**
- * Transport defaults applied to requests made through `HttpTransport`.
- */
-export interface HttpTransportOptions {
-  /**
-   * Shared base URL for relative request paths.
-   *
-   * When set, handlers can call `ctx.http.get('/items')` and dispatch will
-   * resolve the request against this base URL.
-   */
+interface HttpTransportArtifacts extends Artifacts {
+  nextIndex(): number;
+  requestPath(idx: number, name: string): string;
+  responsePath(idx: number, name: string): string;
+  appendCallLog(entry: unknown): void;
+}
+
+interface HttpPoolClient {
+  request(options: {
+    method: HttpMethod;
+    path: string;
+    headers: Record<string, string>;
+    body?: string;
+  }): Promise<{
+    statusCode: number;
+    headers: Record<string, string | string[] | undefined>;
+    body: { text(): Promise<string> };
+  }>;
+}
+
+interface ConnectionPoolProvider {
+  getForUrl(url: string): HttpPoolClient;
+}
+
+interface HttpTransportConfig {
   baseUrl?: string;
-
-  /**
-   * Shared default headers applied to every request.
-   *
-   * Per-request headers override these values.
-   */
   defaultHeaders?: Record<string, string>;
-
-  /**
-   * Reserved toggle for future artifact verbosity controls.
-   */
   verboseArtifacts?: boolean;
-
-  /**
-   * Optional pool registry override.
-   *
-   * Dispatch uses this internally for advanced embedding and tests. Module
-   * authors typically rely on the default shared registry.
-   */
-  poolRegistry?: HttpPoolRegistry;
+  poolRegistry?: ConnectionPoolProvider;
 }
 
 interface HttpTransportSharedState {
   cookieJar: CookieJar;
-  poolRegistry?: HttpPoolRegistry;
+  poolRegistry?: ConnectionPoolProvider;
 }
 
 /**
@@ -61,8 +59,8 @@ export class HttpTransport {
   private shared: HttpTransportSharedState;
 
   constructor(
-    private readonly artifacts: RunArtifacts,
-    private readonly opts?: HttpTransportOptions,
+    private readonly artifacts: HttpTransportArtifacts,
+    private readonly opts?: HttpTransportConfig,
   ) {
     this.shared = {
       cookieJar: new CookieJar(),
@@ -76,7 +74,7 @@ export class HttpTransport {
    * The derived transport shares the same cookie jar, connection pools, and
    * artifact recording as the original transport.
    */
-  withDefaults(opts?: Pick<HttpTransportOptions, 'baseUrl' | 'defaultHeaders'>): HttpTransport {
+  withDefaults(opts?: { baseUrl?: string; defaultHeaders?: Record<string, string> }): HttpTransport {
     const derived = new HttpTransport(this.artifacts, {
       ...this.opts,
       ...opts,

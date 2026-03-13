@@ -1,4 +1,5 @@
-import { ModuleDefinition, defineAction, defineModule } from '../../types.js';
+import { defineAction, defineModule } from '../../types.js';
+import { ModuleDefinition } from '../../internal-types.js';
 import { ForgetSchema, RecallSchema, StoreSchema } from './schemas.js';
 import {
   clearMemoryNamespace,

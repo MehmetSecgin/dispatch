@@ -1,4 +1,4 @@
-import { ModuleDefinition } from '../types.js';
+import { ModuleDefinition } from '../internal-types.js';
 import { createFlowModule } from './flow/index.js';
 import { createMemoryModule } from './memory/index.js';
 

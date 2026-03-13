@@ -191,7 +191,7 @@ async function myAction(ctx: ActionContext, payload: MyPayload): Promise<ActionR
 `ctx` gives the handler access to:
 
 - `ctx.http` - shared run-scoped HTTP transport with cookie/session continuity
-- `ctx.artifacts` - run artifact manager for activity logging
+- `ctx.artifacts` - activity logger for handler-level progress notes
 - `ctx.runtime.steps` - prior step responses and exports
 - `ctx.runtime.run` - run-level captured values and metadata
 - `ctx.step` - the normalized job step currently executing

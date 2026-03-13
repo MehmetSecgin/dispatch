@@ -9,7 +9,7 @@ import { resolveModuleJob } from '../modules/jobs.js';
 import { loadModuleFromDir } from '../modules/loader.js';
 import { fetchModuleFromRegistry } from '../modules/remote.js';
 import { ModuleRegistry } from '../modules/registry.js';
-import type { ModuleDefinition } from '../modules/types.js';
+import type { ModuleDefinition } from '../modules/internal-types.js';
 import { HttpPoolRegistry } from '../services/http-pool.js';
 import { executeJobCase, resolveJobHttpConfig } from './runner.js';
 import type { NextAction } from './next-actions.js';

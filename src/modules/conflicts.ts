@@ -1,4 +1,5 @@
-import { ActionConflict, ResolvedAction } from './types.js';
+import { ResolvedAction } from './types.js';
+import { ActionConflict } from './internal-types.js';
 
 export function conflictMessage(conflict: ActionConflict): string {
   return [

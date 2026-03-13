@@ -1,37 +1,7 @@
 import { z } from 'zod';
-import { RunArtifacts } from '../artifacts/run-artifacts.js';
 import { RuntimeContext } from '../execution/interpolation.js';
 import { JobStep } from '../core/schema.js';
 import { HttpTransport } from '../transport/http.js';
-
-/**
- * Source layer a loaded module or action came from.
- *
- * Dispatch loads modules in this order: `builtin`, `repo`, then `user`.
- * When the same fully qualified action key appears more than once, the later
- * layer wins, so `user` overrides `repo` and `repo` overrides `builtin`.
- */
-export type ModuleLayer = 'builtin' | 'repo' | 'user';
-
-/**
- * Classification for a module-shipped job file.
- *
- * `case` jobs are read-only examples. `seed` jobs are setup jobs that may
- * write durable memory for later workflows.
- */
-export type ModuleJobKind = 'seed' | 'case';
-
-/**
- * One job discovered under a module's optional `jobs/` directory.
- */
-export interface ModuleJobDefinition {
-  /** Stable job identifier derived from the shipped filename. */
-  id: string;
-  /** Whether the job is a read-only case job or a memory-writing seed job. */
-  kind: ModuleJobKind;
-  /** Absolute path to the discovered job file on disk. */
-  path: string;
-}
 
 /**
  * Return value from an action handler.
@@ -80,6 +50,21 @@ export interface ActionResult {
 }
 
 /**
+ * Minimal artifact logger available to action handlers.
+ *
+ * Dispatch manages the underlying run artifact storage internally. Module
+ * authors should only rely on this stable activity logging contract.
+ */
+export interface Artifacts {
+  /**
+   * Append one human-readable line to the run activity log.
+   *
+   * Convention: `<action-name> key=value key=value`.
+   */
+  appendActivity(line: string): void;
+}
+
+/**
  * Public module definition authored by module packages.
  *
  * The runtime entry file referenced by `module.json.entry` must default-export
@@ -121,14 +106,6 @@ export interface DispatchModule {
 }
 
 /**
- * Internal typing helper that keeps action handler authoring ergonomic while
- * still allowing strongly typed payloads in module source.
- */
-type ActionHandler<T> = {
-  bivarianceHack(ctx: ActionContext, payload: T): Promise<ActionResult>;
-}['bivarianceHack'];
-
-/**
  * Definition of one action inside a module.
  */
 export interface ModuleAction<T = unknown> {
@@ -167,7 +144,9 @@ export interface ModuleAction<T = unknown> {
    *
    * The handler must return an `ActionResult`.
    */
-  handler: ActionHandler<T>;
+  handler: {
+    bivarianceHack(ctx: ActionContext, payload: T): Promise<ActionResult>;
+  }['bivarianceHack'];
 }
 
 /**
@@ -244,12 +223,13 @@ export interface ActionContext {
   http: HttpTransport;
 
   /**
-   * Run artifact manager for the current run.
+   * Run artifact logger for the current run.
    *
    * Module authors usually use `appendActivity(...)` to log significant action
-   * events. HTTP request and response artifacts are recorded automatically.
+   * events. Dispatch records the underlying request and response artifacts
+   * automatically.
    */
-  artifacts: RunArtifacts;
+  artifacts: Artifacts;
 
   /**
    * Runtime state accumulated so far in the current run.
@@ -298,29 +278,6 @@ export interface ActionContext {
 }
 
 /**
- * Loaded module definition after dispatch attaches runtime metadata.
- *
- * This is what the registry stores after loading a module from builtin, repo,
- * or user search paths.
- */
-export interface ModuleDefinition {
-  /** Module namespace prefix. */
-  name: string;
-  /** Module semver version string. */
-  version: string;
-  /** Source layer that produced this module. */
-  layer: ModuleLayer;
-  /** Absolute source directory path, or a builtin pseudo-path. */
-  sourcePath: string;
-  /** Merged metadata from the runtime module and `module.json`. */
-  metadata?: Record<string, unknown>;
-  /** Action definitions keyed by action suffix. */
-  actions: Record<string, ModuleAction>;
-  /** Optional jobs discovered under the module's `jobs/` directory. */
-  jobs?: ModuleJobDefinition[];
-}
-
-/**
  * Fully resolved action metadata returned by the registry.
  *
  * When duplicate action keys exist, this represents the winning definition
@@ -334,41 +291,11 @@ export interface ResolvedAction {
   /** Action suffix inside the module, for example `login`. */
   actionName: string;
   /** Source layer that supplied the winning action. */
-  layer: ModuleLayer;
+  layer: 'builtin' | 'repo' | 'user';
   /** Module version for the winning action. */
   version: string;
   /** Absolute source directory path, or a builtin pseudo-path. */
   sourcePath: string;
   /** Action definition that will actually run. */
   definition: ModuleAction;
-}
-
-/**
- * Override record captured when multiple loaded modules define the same
- * fully qualified action key.
- */
-export interface ActionConflict {
-  actionKey: string;
-  previous: {
-    moduleName: string;
-    layer: ModuleLayer;
-    version: string;
-    sourcePath: string;
-  };
-  winner: {
-    moduleName: string;
-    layer: ModuleLayer;
-    version: string;
-    sourcePath: string;
-  };
-}
-
-/**
- * Result of loading modules from all configured search paths.
- */
-export interface ModuleLoadResult {
-  /** Successfully loaded module definitions. */
-  modules: ModuleDefinition[];
-  /** Non-fatal warnings encountered during discovery or loading. */
-  warnings: string[];
 }

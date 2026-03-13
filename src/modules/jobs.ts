@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { ModuleDefinition, ModuleJobDefinition, ModuleJobKind } from './types.js';
+import { ModuleDefinition, ModuleJobDefinition, ModuleJobKind } from './internal-types.js';
 
 const JOB_SUFFIX_RE = /\.job\.(seed|case)\.json$/;
 

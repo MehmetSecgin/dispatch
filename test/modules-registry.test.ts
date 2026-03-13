@@ -80,6 +80,10 @@ describe('module registry', () => {
     expect(dispatchkit.defineAction).toBe(defineAction);
   });
 
+  it('keeps the runtime root entry limited to the authoring API and ctx.http class', () => {
+    expect(Object.keys(dispatchkit).sort()).toEqual(['HttpTransport', 'defineAction', 'defineModule']);
+  });
+
   it('resolves actions from map-based custom modules', () => {
     const registry = new ModuleRegistry();
     registry.register({

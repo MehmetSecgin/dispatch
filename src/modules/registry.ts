@@ -1,4 +1,5 @@
-import { ActionConflict, ModuleDefinition, ResolvedAction } from './types.js';
+import { ResolvedAction } from './types.js';
+import { ActionConflict, ModuleDefinition } from './internal-types.js';
 
 export class ModuleRegistry {
   private readonly modules: ModuleDefinition[] = [];

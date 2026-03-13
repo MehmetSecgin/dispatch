@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import type { ModuleDefinition } from '../src/modules/types.ts';
+import type { ModuleDefinition } from '../src/modules/internal-types.ts';
 import { ModuleRegistry } from '../src/modules/registry.ts';
 import { evaluateConditionGroup } from '../src/execution/conditions.ts';
 import { createFlowModule } from '../src/modules/builtin/flow/index.ts';
