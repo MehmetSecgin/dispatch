@@ -3,7 +3,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { ModuleRegistry } from './registry.js';
 import { loadModules } from './loader.js';
-import { ModuleDefinition } from './types.js';
+import { ModuleDefinition } from './internal-types.js';
 import { conflictMessage } from './conflicts.js';
 import { schemaToJsonSchema } from './schema-contracts.js';
 

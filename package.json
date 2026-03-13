@@ -1,10 +1,10 @@
 {
   "name": "dispatchkit",
-  "version": "0.0.18",
+  "version": "0.1.0",
   "description": "Deterministic dispatch CLI for flow-first job orchestration",
   "scripts": {
     "prebuild": "node scripts/write-skill-version.mjs",
-    "build": "tsup src/index.ts src/cli.ts --format esm --out-dir dist --clean --dts",
+    "build": "tsup src/index.ts src/cli.ts --format esm --out-dir dist --clean --dts && node scripts/check-public-surface.mjs",
     "dev": "tsx src/cli.ts",
     "check": "tsc --noEmit",
     "format": "prettier --write src/**/*.ts",

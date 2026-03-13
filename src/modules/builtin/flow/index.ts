@@ -1,4 +1,5 @@
-import { ModuleDefinition, defineAction, defineModule } from '../../types.js';
+import { defineAction, defineModule } from '../../types.js';
+import { ModuleDefinition } from '../../internal-types.js';
 import { parseDurationMs, sleep } from '../../../core/time.js';
 import { executeFlowPoll } from './poll.js';
 import { FlowPollPayloadSchema, FlowSleepSchema } from './schemas.js';

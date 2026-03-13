@@ -8,7 +8,8 @@ import { readJson } from '../utils/fs-json.js';
 import { ModuleManifest, ModuleManifestSchema } from './manifest.js';
 import { loadBuiltinModules } from './builtin/index.js';
 import { discoverModuleJobs } from './jobs.js';
-import { DispatchModule, ModuleAction, ModuleDefinition, ModuleLoadResult, ModuleLayer } from './types.js';
+import { DispatchModule, ModuleAction } from './types.js';
+import { ModuleDefinition, ModuleLoadResult, ModuleLayer } from './internal-types.js';
 
 function isZodSchema(value: unknown): value is z.ZodSchema {
   return !!value && typeof value === 'object' && 'safeParse' in value && typeof value.safeParse === 'function';
