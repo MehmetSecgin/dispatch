@@ -8,11 +8,20 @@ export const RegistryConfigSchema = z
   })
   .strict();
 
+export const ModuleEntrySchema = z
+  .object({
+    repo: z.string().min(1),
+    version: z.string().min(1),
+  })
+  .strict();
+
 export const DispatchConfigSchema = z
   .object({
     registry: RegistryConfigSchema.optional(),
+    modules: z.record(z.string().min(1), ModuleEntrySchema).optional(),
   })
   .strict();
 
 export type DispatchConfig = z.infer<typeof DispatchConfigSchema>;
 export type RegistryConfig = z.infer<typeof RegistryConfigSchema>;
+export type ModuleEntry = z.infer<typeof ModuleEntrySchema>;

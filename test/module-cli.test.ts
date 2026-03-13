@@ -8,6 +8,7 @@ import { startRegistryFixture } from './helpers/registry-fixture.ts';
 
 const THIS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(THIS_DIR, '..');
+const TSX_LOADER = path.join(REPO_ROOT, 'node_modules', 'tsx', 'dist', 'loader.mjs');
 const SDK_IMPORT = JSON.stringify(pathToFileURL(path.join(REPO_ROOT, 'src', 'index.ts')).href);
 const ZOD_IMPORT = JSON.stringify(pathToFileURL(path.join(REPO_ROOT, 'node_modules', 'zod', 'index.js')).href);
 const EXPORT_FIXTURE_MODULE_NAME = `zz-exports-fixture-${process.pid}`;
@@ -34,6 +35,23 @@ function runCli(args: string[], env?: NodeJS.ProcessEnv) {
 function runCliHuman(args: string[], env?: NodeJS.ProcessEnv) {
   const out = spawnSync(process.execPath, ['--import', 'tsx', 'src/cli.ts', ...args], {
     cwd: REPO_ROOT,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      ...env,
+    },
+  });
+
+  return {
+    status: out.status,
+    stderr: out.stderr,
+    stdout: out.stdout,
+  };
+}
+
+function runCliHumanIn(cwd: string, args: string[], env?: NodeJS.ProcessEnv) {
+  const out = spawnSync(process.execPath, ['--import', TSX_LOADER, path.join(REPO_ROOT, 'src', 'cli.ts'), ...args], {
+    cwd,
     encoding: 'utf8',
     env: {
       ...process.env,
@@ -200,6 +218,27 @@ describe('module CLI', () => {
     expect(result.status).toBe(0);
     expect(result.json?.name).toBe('flow');
     expect(result.json?.actionCount).toBeGreaterThan(0);
+  });
+
+  it('prints module SKILL.md from disk', () => {
+    const moduleDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-module-init-test-'));
+    fs.writeFileSync(path.join(moduleDir, 'SKILL.md'), '# fixture skill\n\nUse carefully.\n', 'utf8');
+
+    const result = runCliHuman(['module', 'skill', '--path', moduleDir]);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.stdout).toBe('# fixture skill\n\nUse carefully.\n');
+  });
+
+  it('fails module skill when SKILL.md is missing', () => {
+    const moduleDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-module-init-test-'));
+
+    const result = runCliHuman(['module', 'skill', '--path', moduleDir]);
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain(`No SKILL.md found at ${path.join(moduleDir, 'SKILL.md')}`);
   });
 
   it('includes discovered module jobs in inspect output', () => {
@@ -479,6 +518,76 @@ describe('module CLI', () => {
           message: expect.stringContaining('Missing required HTTP config'),
         }),
       ]),
+    );
+  });
+
+  it('warns when SKILL.md exists for a configured module but no installed skill is recorded', () => {
+    const moduleDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-module-validate-test-'));
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-module-validate-test-'));
+    const runDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-module-validate-test-'));
+    fs.mkdirSync(path.join(homeDir, '.dispatch'), { recursive: true });
+    fs.writeFileSync(
+      path.join(homeDir, '.dispatch', 'config.json'),
+      `${JSON.stringify(
+        {
+          modules: {
+            'skill-warning-fixture': {
+              repo: 'acme/dispatch-skill-warning-fixture',
+              version: 'main',
+            },
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(moduleDir, 'module.json'),
+      `${JSON.stringify(
+        {
+          name: 'skill-warning-fixture',
+          version: '1.0.0',
+          entry: 'index.mjs',
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(moduleDir, 'index.mjs'),
+      [
+        `import { defineAction, defineModule } from ${SDK_IMPORT};`,
+        `import { z } from ${ZOD_IMPORT};`,
+        '',
+        'export default defineModule({',
+        "  name: 'skill-warning-fixture',",
+        "  version: '1.0.0',",
+        '  actions: {',
+        '    ping: defineAction({',
+        "      description: 'Ping action.',",
+        '      schema: z.object({}),',
+        "      handler: async () => ({ response: { ok: true }, detail: 'pong' }),",
+        '    }),',
+        '  },',
+        '});',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(moduleDir, 'SKILL.md'),
+      ['---', 'name: skill-warning-guide', '---', '', '# skill warning fixture', ''].join('\n'),
+      'utf8',
+    );
+
+    const result = runCliHumanIn(runDir, ['module', 'validate', '--path', moduleDir], { HOME: homeDir });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Module valid -> skill-warning-fixture@1.0.0');
+    expect(result.stdout).toContain(
+      'SKILL.md found but skill does not appear installed. Run: dispatch skill install skill-warning-fixture',
     );
   });
 

@@ -98,6 +98,25 @@ function summarizeSchemaPropertiesFromJson(jsonSchema: Record<string, unknown> |
     .join(', ');
 }
 
+function parseSkillFrontmatterName(content: string): string | null {
+  const frontmatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*(?:\n|$)/);
+  if (!frontmatterMatch) return null;
+  const nameMatch = frontmatterMatch[1].match(/^name:\s*(.+)\s*$/m);
+  return nameMatch ? nameMatch[1].trim() : null;
+}
+
+function skillLockContainsName(lockPath: string, skillName: string): boolean {
+  if (!fs.existsSync(lockPath) || !fs.statSync(lockPath).isFile()) return false;
+  try {
+    const raw = JSON.parse(fs.readFileSync(lockPath, 'utf8')) as unknown;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return false;
+    const skills = (raw as { skills?: unknown }).skills;
+    return !!skills && typeof skills === 'object' && !Array.isArray(skills) && skillName in skills;
+  } catch {
+    return false;
+  }
+}
+
 function normalizeModuleRelativePath(input: string): string {
   return input
     .replace(/\\/g, '/')
@@ -423,12 +442,28 @@ export function registerModuleCommands(program: Command): void {
     });
 
   moduleCmd
+    .command('skill')
+    .description('Print SKILL.md from a module directory')
+    .requiredOption('--path <dir>')
+    .action(async (cmd) => {
+      const moduleDir = path.resolve(String(cmd.path));
+      const skillPath = path.join(moduleDir, 'SKILL.md');
+      if (!fs.existsSync(skillPath) || !fs.statSync(skillPath).isFile()) {
+        console.error(`No SKILL.md found at ${skillPath}`);
+        process.exitCode = 1;
+        return;
+      }
+      process.stdout.write(fs.readFileSync(skillPath, 'utf8'));
+    });
+
+  moduleCmd
     .command('validate')
     .description('Validate module manifest and handlers')
     .requiredOption('--path <moduleDir>')
     .action(async (cmd) => {
       const opts = program.opts();
-      const renderer = createRenderer({ json: !!opts.json });
+      const color = isColorEnabled(opts);
+      const renderer = createRenderer({ json: !!opts.json, color });
       const moduleDir = path.resolve(cmd.path);
       const manifestPath = path.join(moduleDir, 'module.json');
       if (!fs.existsSync(manifestPath)) throw new Error(`Missing module.json at ${manifestPath}`);
@@ -514,7 +549,20 @@ export function registerModuleCommands(program: Command): void {
         emptyDescriptions,
         jobs: discoveredJobs,
         jobIssues,
+        warnings: [] as string[],
       };
+      const skillPath = path.join(moduleDir, 'SKILL.md');
+      const configuredModule = loadConfig().config.modules?.[parsed.data.name];
+      if (configuredModule?.repo && fs.existsSync(skillPath) && fs.statSync(skillPath).isFile()) {
+        const skillContent = fs.readFileSync(skillPath, 'utf8');
+        const skillName = parseSkillFrontmatterName(skillContent) ?? parsed.data.name;
+        const skillLockPath = path.join(process.cwd(), 'skills-lock.json');
+        if (!skillLockContainsName(skillLockPath, skillName)) {
+          out.warnings.push(
+            `SKILL.md found but skill does not appear installed. Run: dispatch skill install ${parsed.data.name}`,
+          );
+        }
+      }
       renderer.render({
         json: out.valid ? out : jsonErrorEnvelope(cliErrorFromCode('USAGE_ERROR', 'module validation failed', out)),
         human: [
@@ -523,6 +571,7 @@ export function registerModuleCommands(program: Command): void {
           `  Actions: ${out.actionCount}`,
           ...(out.emptyDescriptions.length > 0 ? [`  Empty descriptions: ${out.emptyDescriptions.join(', ')}`] : []),
           ...(out.jobs.length > 0 ? [`  Jobs: ${out.jobs.map((job) => `[${job.kind}] ${job.id}`).join(', ')}`] : []),
+          ...out.warnings.map((warning) => `${uiSymbol('warning', color)} ${warning}`),
           ...(out.jobIssues.length > 0
             ? out.jobIssues.map((issue) => `  Job issue: ${issue.path}: ${issue.message}`)
             : []),
