@@ -3,10 +3,11 @@
 This document is for dispatch module authors working from the published
 `dispatchkit` package. It focuses on the runtime contract, recommended file
 layout, and the conventions that make modules easy for both humans and agents
-to author and inspect.
+to author, use, and inspect.
 
 For job syntax and operator-facing CLI behavior, see `README.md`.
 For design guidance on intent-shaped APIs, see `CONVENTIONS.md`.
+For prompt-ready agent recipes, see `docs/prompt-module-implementer-skill.md` and `docs/prompt-module-extender-skill.md`.
 
 ## Module Structure
 
@@ -303,45 +304,12 @@ to use or extend the module without reading source code.
 context that structured inspection cannot: prerequisites, common job patterns,
 cross-action sequencing, and behavioral gotchas.
 
-Recommended structure:
+Keep module `SKILL.md` files concise and operational:
 
-```markdown
-# <module-name> - Agent Skill Guide
-
-<one-paragraph description of what this module does and when to use it>
-
-## Actions
-
-### `<module-name>.<action-name>`
-
-<one-sentence description>
-
-**Payload:**
-
-| Field | Type | Required | Notes |
-|-------|------|----------|-------|
-| `field` | `string` | yes | description |
-| `field` | `number` | no | default: X |
-
-**Exports:** none / `{ fieldName: type - description }`
-
-**Prerequisites:** <what must be true before running this action>
-
----
-
-## Prerequisites
-
-- `ENV_VAR` - <what it controls>
-
-## Common patterns
-
-<example multi-step sequences or usage notes>
-
-## Notes
-
-- <cross-action behavioral notes>
-- <non-obvious defaults or normalization>
-```
+- summarize when to use the module
+- document each action at a high level
+- note prerequisites, credentials, exports, and cross-action gotchas
+- point to shipped jobs when they demonstrate common sequences
 
 Print a module's `SKILL.md` from the command line:
 
@@ -349,9 +317,38 @@ Print a module's `SKILL.md` from the command line:
 dispatch module skill --path ./my-module
 ```
 
+If the module also publishes a public agent skill, consumers can wire it into
+dispatch config so `dispatch skill install/update` knows where to fetch it:
+
+```json
+{
+  "modules": {
+    "payments": {
+      "repo": "owner/payments-module",
+      "version": "1.2.0"
+    }
+  }
+}
+```
+
+Then they can run:
+
+```bash
+dispatch skill install payments
+dispatch skill update payments
+```
+
+For prompt-ready recipes that create or extend modules, use:
+
+- `docs/prompt-module-implementer-skill.md`
+- `docs/prompt-module-extender-skill.md`
+
 ## Job Files
 
 Modules can ship example jobs under `jobs/`.
+
+For full job semantics, data-flow rules, and operator-facing job guidance, see
+`SKILL.md` and `docs/jobs/memory-and-dependencies.md`.
 
 Kinds:
 

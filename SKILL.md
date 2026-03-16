@@ -8,20 +8,20 @@ license: MIT
 
 `dispatch` is an agent-first CLI for orchestrating API workflows with declarative job files. Use it to validate and run portable workflows made of namespaced module actions.
 
-## Quick loop
+## Job Authoring Loop
 
 ```bash
-dispatch module inspect <name>
+dispatch module list
+dispatch module inspect flow
+dispatch module inspect memory
 dispatch schema action --name <module.action> --print
 dispatch job validate --case my.job.case.json
 dispatch job run --case my.job.case.json
-dispatch job run --case my.job.case.json --resolve-deps
-dispatch --home ~/.dispatch job run --case my.job.case.json
 ```
 
 - Current CLI flag is `--case`.
-- `--resolve-deps` runs declared memory fill jobs before the main run.
-- `--home` is a global flag for changing the dispatch state directory.
+- Start with `dispatch module list` so you inventory built-ins before inventing step structure.
+- `--resolve-deps` fills declared memory prerequisites before the main run; `--home` overrides the state directory.
 
 ## Job file structure
 
@@ -79,16 +79,28 @@ Modules package actions and optional shipped jobs. Actions are always namespaced
 - `memory.recall`
 - `example.create-user`
 
+Dispatch ships built-ins you should inspect first: `flow` for orchestration (`flow.sleep`, `flow.poll`) and `memory` for durable cross-run state (`memory.recall`, `memory.store`, `memory.forget`).
+
 Use inspection instead of guessing:
 
 ```bash
+dispatch module list
 dispatch module inspect jsonplaceholder
+dispatch module skill --path ./modules/my-module
 dispatch schema action --name jsonplaceholder.get-user --print
 dispatch module validate --path ./modules/my-module
 dispatch module install --bundle my-module.dpmod.zip
 dispatch module install --name my-module --version 0.1.0
 dispatch skill install <name>
 dispatch skill install --all
+dispatch skill update <name>
+dispatch skill update --all
+```
+
+To use `dispatch skill install/update`, define module skill sources in `dispatch.config.json` or `~/.dispatch/config.json`:
+
+```json
+{ "modules": { "my-module": { "repo": "owner/my-module", "version": "0.1.0" } } }
 ```
 
 ## Step anatomy
@@ -101,8 +113,6 @@ Each `scenario.steps[]` item usually contains:
 - `credential`: optional credential profile name.
 - `capture`: optional map from `exports.*` to stable `run.*` names.
 
-Example step:
-
 ```json
 { "id": "login", "action": "auth.login", "credential": "apiUser", "payload": {} }
 ```
@@ -113,7 +123,7 @@ Actions can return both `response` and `exports`.
 
 - `${step.<id>.response.<field>}` reads transport-facing response data.
 - `${step.<id>.exports.<field>}` reads same-run workflow values emitted by the action.
-- `capture` promotes a selected export into `${run.<name>}` for later steps.
+- `capture` promotes a selected export into `${run.<name>}` for later steps and only accepts `exports.*`.
 
 Multi-step job with capture:
 
@@ -182,7 +192,8 @@ Rules:
 
 - Single-step workflow: literal payload, one action, no interpolation.
 - Multi-step workflow: later steps read `${step.*}` or `${run.*}`.
+- Repeated checks: inspect `flow.poll` before writing manual retry loops.
 - Env-backed transport: put shared request config under top-level `http`.
 - Dependency-aware runs: declare `dependencies`; use `--resolve-deps` when you want dispatch to fill missing memory prerequisites.
 
-When writing a job, start with `module inspect` and `schema action --print`, then validate, then run.
+When writing a job, start with `module list`, inspect built-ins and planned actions, then validate, then run.

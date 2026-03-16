@@ -70,6 +70,7 @@ dispatch job assert --run-id latest
 
 # Try the repo jsonplaceholder module
 dispatch module inspect jsonplaceholder
+dispatch module skill --path modules/jsonplaceholder
 dispatch job validate --case modules/jsonplaceholder/jobs/jsonplaceholder-kitchen-sink.job.case.json
 dispatch job run --case modules/jsonplaceholder/jobs/jsonplaceholder-kitchen-sink.job.case.json
 dispatch job assert --run-id latest
@@ -100,12 +101,13 @@ Release notes for maintainers live in [docs/release.md](docs/release.md).
 Agent-native product principles live in [docs/agent-native.md](docs/agent-native.md).
 HTTP auth/session behavior for module authors lives in [docs/modules/http-auth.md](docs/modules/http-auth.md).
 Packaged module-author guidance lives in [MODULE_AUTHORING.md](MODULE_AUTHORING.md) and [CONVENTIONS.md](CONVENTIONS.md).
+Specialized agent recipes live in [docs/prompt-module-implementer-skill.md](docs/prompt-module-implementer-skill.md) and [docs/prompt-module-extender-skill.md](docs/prompt-module-extender-skill.md).
 
 ---
 
 ## Job Cases
 
-A job case is a portable JSON file — shareable, versionable, replayable.
+A job case is a portable JSON file: shareable, versionable, replayable.
 
 ```json
 {
@@ -113,28 +115,20 @@ A job case is a portable JSON file — shareable, versionable, replayable.
   "jobType": "my-workflow",
   "scenario": {
     "steps": [
-      {
-        "id": "pause",
-        "action": "flow.sleep",
-        "payload": { "duration": "1s" }
-      },
+      { "id": "pause", "action": "flow.sleep", "payload": { "duration": "1s" } },
       {
         "id": "wait-for-ready",
         "action": "flow.poll",
         "payload": {
           "action": "probe.get-status",
-          "payload": {
-            "id": "${run.targetId}"
-          },
+          "payload": { "id": "${run.targetId}" },
           "intervalMs": 1000,
           "maxDurationMs": 10000,
           "conditions": {
             "mode": "ALL",
             "rules": [{ "path": "$.ready", "op": "eq", "value": true }]
           },
-          "store": {
-            "resourceId": "$.id"
-          }
+          "store": { "resourceId": "$.id" }
         }
       }
     ]
@@ -142,265 +136,17 @@ A job case is a portable JSON file — shareable, versionable, replayable.
 }
 ```
 
-- Actions are always namespaced: `module.action`
-- Payloads use intent fields, not raw wire payloads
-- Interpolation uses `${env.NAME}`, `${step.<id>.response.<field>}`, `${step.<id>.exports.<field>}`, or `${jsonpath(step:<id>, <path>)}`
-- Same-run values should flow through `step.*` or `run.*`, not persistent memory
+- Actions are always namespaced as `module.action`
+- Use `${step.<id>.response.*}` for prior response data
+- Use `${step.<id>.exports.*}` for same-run workflow values
+- Use `capture` only to promote `exports.*` into `run.*`
+- Keep same-run values in `step.*` or `run.*`, not in persistent memory
 
-`env.*` is the bridge between repo-local setup and portable jobs. With `direnv`, the values
-come from `.envrc`; in CI they can come from normal environment injection.
+Detailed references:
 
-If an action generates a same-run workflow value that should not be faked into the transport response, return it under `exports` and reference it from later steps:
-
-```js
-return {
-  response: { ok: true },
-  exports: { generatedId },
-};
-```
-
-```json
-{
-  "id": "consume",
-  "action": "example.consume",
-  "payload": {
-    "generatedId": "${step.publish.exports.generatedId}"
-  }
-}
-```
-
-If the job wants a stable workflow-level name instead of coupling later steps to the action’s export key, capture it explicitly into `run.*`:
-
-```json
-{
-  "id": "publish",
-  "action": "example.publish",
-  "capture": {
-    "workflowId": "exports.generatedId"
-  }
-}
-```
-
-Later steps can then use `${run.workflowId}`.
-
-### Job-level HTTP defaults
-
-Jobs can declare shared request context once at the top level:
-
-```json
-{
-  "http": {
-    "baseUrl": "https://api.example.com",
-    "defaultHeaders": {
-      "x-client": "dispatch"
-    }
-  }
-}
-```
-
-- `http.baseUrl` configures the root `ctx.http` transport for the whole run
-- `http.defaultHeaders` applies to all requests in the run unless a handler narrows or overrides them
-- Cookies/session continuity still live in the shared run transport
-- Handlers can still derive narrower clients with `ctx.http.withDefaults(...)`
-
-If those values differ by developer machine, environment, or CI target, keep the job explicit
-and resolve the actual values from `${env.*}`:
-
-```json
-{
-  "http": {
-    "baseUrl": "${env.DISPATCH_HTTP_BASE_URL}",
-    "defaultHeaders": {
-      "x-client": "dispatch",
-      "x-context": "${env.DISPATCH_HTTP_X_CONTEXT}"
-    }
-  }
-}
-```
-
-This is the recommended way to connect `direnv` to shared request config.
-
-If the env-backed values are missing or resolve to invalid HTTP config:
-
-- `dispatch job validate` fails before execution
-- `dispatch job run` also fails before execution
-
-If a job intentionally relies on shared HTTP context, declare that explicitly in dependencies:
-
-```json
-{
-  "http": {
-    "baseUrl": "https://api.example.com",
-    "defaultHeaders": {
-      "x-client": "dispatch"
-    }
-  },
-  "dependencies": {
-    "http": {
-      "required": ["baseUrl", "defaultHeaders.x-client"]
-    }
-  }
-}
-```
-
-- `job.http` holds the actual values
-- `dependencies.http.required` declares which paths must be present
-- `dispatch job validate` and `dispatch job run` fail early if required HTTP config is missing
-
-### Job-level credential profiles
-
-Jobs can bind named credential profiles without putting plaintext secrets in the case file:
-
-```json
-{
-  "credentials": {
-    "adminQa": {
-      "fromEnv": {
-        "username": "DISPATCH_ADMIN_USERNAME",
-        "password": "DISPATCH_ADMIN_PASSWORD"
-      }
-    }
-  },
-  "scenario": {
-    "steps": [
-      {
-        "id": "login",
-        "action": "admin.login",
-        "credential": "adminQa",
-        "payload": {}
-      }
-    ]
-  }
-}
-```
-
-- `credentials.<name>.fromEnv` maps credential field names to environment variables
-- step `credential` binds one named profile to an action
-- actions read resolved secrets from `ctx.credential`, not from payload
-- `dispatch job validate` fails if a step is missing a required credential binding
-- `dispatch job run` also fails early if required environment variables are missing
-
-This pairs naturally with `direnv`: the job stores only env var names, while `.envrc`
-or CI provides the actual secret values.
-
-If an action expects a credential contract, declare it with `credentialSchema` so `module inspect`
-and `schema action --print` can surface it.
-
-### Putting It Together
-
-The intended setup is:
-
-1. `direnv` loads environment-specific values into your shell
-2. the job reads non-secret values through `${env.*}`
-3. the job binds secrets through `credentials.<name>.fromEnv`
-4. steps still bind credentials explicitly with `credential`
-
-Example:
-
-```json
-{
-  "http": {
-    "baseUrl": "${env.DISPATCH_HTTP_BASE_URL}",
-    "defaultHeaders": {
-      "x-context": "${env.DISPATCH_HTTP_X_CONTEXT}"
-    }
-  },
-  "credentials": {
-    "admin": {
-      "fromEnv": {
-        "username": "DISPATCH_ADMIN_USERNAME",
-        "password": "DISPATCH_ADMIN_PASSWORD"
-      }
-    }
-  },
-  "scenario": {
-    "steps": [
-      {
-        "id": "login",
-        "action": "admin.login",
-        "credential": "admin",
-        "payload": {}
-      }
-    ]
-  }
-}
-```
-
-That keeps the job inspectable and portable while removing the need for repeated manual
-`export ...` commands.
-
-### Memory and job kinds
-
-Dispatch distinguishes between portable case jobs and memory-mutating seed jobs:
-
-- `*.job.case.json`
-  - may use `memory.recall`
-  - may not use `memory.store`
-  - may not use `memory.forget`
-- `*.job.seed.json`
-  - may use all memory actions
-
-Memory is for durable cross-run state, not same-run wiring. Persistent values live at:
-
-```text
-~/.dispatch/memory/<namespace>.json
-```
-
-Keys are dotted paths that address locations inside the namespace file. The file on disk is plain nested JSON:
-
-```json
-{
-  "users": {
-    "user-1": { "id": 1, "name": "Leanne Graham" },
-    "user-2": { "id": 2, "name": "Ervin Howell" }
-  }
-}
-```
-
-A seed job step that writes `user-1`:
-
-```json
-{
-  "id": "store-user",
-  "action": "memory.store",
-  "payload": {
-    "namespace": "reference-data",
-    "key": "users.user-1",
-    "value": { "id": 1, "name": "Leanne Graham" }
-  }
-}
-```
-
-### Job dependencies
-
-Jobs can declare explicit prerequisites:
-
-```json
-{
-  "dependencies": {
-    "modules": [{ "name": "jsonplaceholder", "version": "^0.2.0" }],
-    "memory": [
-      {
-        "namespace": "jsonplaceholder-reference",
-        "key": "users.user-1",
-        "fill": {
-          "module": "jsonplaceholder",
-          "job": "seed-user-1-reference"
-        }
-      }
-    ],
-    "http": {
-      "required": ["baseUrl", "defaultHeaders.x-client"]
-    }
-  }
-}
-```
-
-- Module dependencies are validated before execution
-- Missing memory dependencies fail early with actionable `next[]`
-- Missing required HTTP config fails before actions execute
-- `dispatch job run --resolve-deps` can run fill jobs before the main job
-- Fill jobs resolve by logical module job id, preferring `<job>.job.seed.json` over `<job>.job.case.json`
+- [SKILL.md](SKILL.md) for the default agent job-authoring workflow
+- [docs/jobs/memory-and-dependencies.md](docs/jobs/memory-and-dependencies.md) for memory, dependencies, `capture`, and `--resolve-deps`
+- [docs/modules/http-auth.md](docs/modules/http-auth.md) for shared HTTP and credential-backed auth flows
 
 ---
 
@@ -505,6 +251,9 @@ dispatch skill install [name] [--all]
 dispatch skill update [name] [--all]
 ```
 
+These commands read the configured module skill sources from `dispatch.config.json`
+or `~/.dispatch/config.json`.
+
 ```bash
 dispatch runtime show
 dispatch runtime unset [--all]
@@ -540,6 +289,48 @@ user        ~/.dispatch/modules/*       user-installed bundles
 
 Use `dispatch --home <dir> ...` to override that user state root for one invocation.
 
+## Dispatch Config
+
+Dispatch reads config from:
+
+- `./dispatch.config.json`
+- `~/.dispatch/config.json`
+
+Project config overrides user config when both exist. User config is the right place
+for sensitive registry auth tokens. Project config is the right place for checked-in
+module skill mappings and non-secret defaults.
+
+Example:
+
+```json
+{
+  "registry": {
+    "url": "https://registry.example.com/modules",
+    "scope": "@example"
+  },
+  "modules": {
+    "jsonplaceholder": {
+      "repo": "MehmetSecgin/dispatch",
+      "version": "0.1.2"
+    },
+    "payments": {
+      "repo": "${env.DISPATCH_PAYMENTS_SKILL_REPO}",
+      "version": "1.4.0"
+    }
+  }
+}
+```
+
+Notes:
+
+- `modules.<name>.repo` is the source passed to `skills add`.
+- `modules.<name>.version` pins the installed skill version.
+- `${env.NAME}` interpolation works in config string values.
+- `dispatch skill install <name>` installs one configured module skill.
+- `dispatch skill update --all` refreshes every configured module skill.
+- `dispatch module validate --path <dir>` warns when a configured module ships
+  `SKILL.md` but the current repo does not appear to have that skill installed.
+
 ## State Directory
 
 By default, dispatch stores state in `~/.dispatch` (modules, config, memory, action defaults).
@@ -551,135 +342,30 @@ You can override this with:
 
 **Agents:** use `DISPATCH_HOME` pointing to a project-local or temp directory to isolate dispatch state from the user's global `~/.dispatch` during automated runs.
 
-### Build a module
+## Module Authoring
 
-```bash
-dispatch module init --name payments --out ./modules/payments
-```
+Use dispatch modules when you want a reusable namespaced action surface rather than one-off jobs.
 
-Generates two files:
+Start here:
 
-```
-payments/
-  module.json     — discovery manifest
-  index.mjs       — runtime module entry
-```
-
-```json
-{
-  "name": "payments",
-  "version": "0.1.0",
-  "entry": "index.mjs"
-}
-```
-
-```js
-import { z } from 'zod';
-import { defineAction, defineModule } from 'dispatchkit';
-
-async function registerWebhook(ctx, payload) {
-  return {
-    response: {
-      ok: true,
-      received: payload,
-    },
-    detail: 'replace with real implementation',
-  };
-}
-
-export default defineModule({
-  name: 'payments',
-  version: '0.1.0',
-  actions: {
-    'register-webhook': defineAction({
-      description: 'Register a webhook endpoint',
-      schema: z.object({
-        url: z.string().url(),
-      }),
-      handler: registerWebhook,
-    }),
-  },
-});
-```
-
-- `module.json` is discovery metadata and runtime entry location
-- `index.mjs` default-exports the full module object
-- external modules may be authored in TS and compiled to JS; `module.json.entry` should point at the built runtime file
-
-Modules can also ship job files under `jobs/`:
-
-```text
-payments/
-  module.json
-  index.mjs
-  jobs/
-    sync-catalog.job.case.json
-    cache-reference-data.job.seed.json
-```
-
-- `dispatch module inspect <name> --json` lists discovered shipped jobs
-- `dispatch schema action --name <module.action> --print` includes input, declared exports, and declared credential schema when present
-- `dispatch module validate --path <dir>` validates both handlers and shipped job files
-- Use seed jobs for cache/bootstrap flows that populate memory for later case jobs
-
-### Example repo module: `jsonplaceholder`
-
-The repository ships a public example module under [`modules/jsonplaceholder`](/Users/mehmetsecgin/dispatch/modules/jsonplaceholder).
-
-Its shipped jobs now demonstrate the intended pattern: each job declares
-`http.baseUrl`, and the module actions use relative HTTP paths through the shared run
-transport.
+- [MODULE_AUTHORING.md](MODULE_AUTHORING.md) for the module contract, file layout, handlers, schemas, exports, credentials, validation, and introspection
+- [docs/prompt-module-implementer-skill.md](docs/prompt-module-implementer-skill.md) for the agent recipe to build a module from scratch
+- [docs/prompt-module-extender-skill.md](docs/prompt-module-extender-skill.md) for the agent recipe to add actions to an existing module
 
 Useful commands:
 
 ```bash
+dispatch module init --name payments --out ./modules/payments
 dispatch module inspect jsonplaceholder
+dispatch module skill --path modules/jsonplaceholder
 dispatch module validate --path modules/jsonplaceholder
-dispatch job validate --case modules/jsonplaceholder/jobs/jsonplaceholder-kitchen-sink.job.case.json
-dispatch job run --case modules/jsonplaceholder/jobs/jsonplaceholder-kitchen-sink.job.case.json
-dispatch job run-many --case modules/jsonplaceholder/jobs/jsonplaceholder-run-many.job.case.json --count 3
-```
-
-Example shipped jobs:
-
-- `jsonplaceholder-kitchen-sink.job.case.json`
-  Exercises `flow.sleep`, `flow.poll`, interpolation, `run.*`, and a follow-up create call.
-- `jsonplaceholder-relations.job.case.json`
-  Traverses user -> albums -> photos and user -> posts -> comments.
-- `jsonplaceholder-poll.job.case.json`
-  Focused `flow.poll` example using `jsonplaceholder.get-post`.
-- `seed-user-1-reference.job.seed.json`
-  Populates durable memory under `jsonplaceholder-reference.users.user-1`.
-- `jsonplaceholder-from-memory.job.case.json`
-  Declares a memory dependency and recalls the seeded user before listing posts.
-
-### Module auth flows
-
-Cookie-backed auth flows are handled by `ctx.http`, not by module-specific storage.
-
-- use the top-level job `http` block for shared base URLs and default headers
-- a login action can establish a session with `Set-Cookie`
-- later actions in the same run automatically reuse the session
-- cookies are run-scoped only and are not persisted in `memory`
-
-See [docs/modules/http-auth.md](docs/modules/http-auth.md) for the module-author contract.
-
-### Pack and install
-
-```bash
 dispatch module pack --path ./modules/payments --out payments.dpmod.zip
 dispatch module install --bundle payments.dpmod.zip
+dispatch skill install payments
+dispatch skill update payments
 ```
 
-Packed bundles are runtime-focused by default:
-
-- `module.json`
-- the runtime entry subtree (for example `dist/`)
-- `jobs/`
-- `README.md` when present
-
-Authoring files such as `src/`, `tsconfig.json`, and bundler configs are not bundled unless the
-module manifest explicitly adds extra runtime assets under `pack.include`.
+The repo ships [`modules/jsonplaceholder`](/Users/mehmetsecgin/dispatch/modules/jsonplaceholder) as a public reference module and example job set.
 
 ---
 
@@ -705,7 +391,7 @@ dispatch --home ./.dispatch-dev job run --case ./jobs/example.job.case.json
 
 ## Agent Briefing
 
-Drop `SKILL.md` into your agent's context before any session. The agent reads it once, knows the preflight sequence, the happy path, and the troubleshooting ladder. No exploration required.
+Use [SKILL.md](SKILL.md) as the default agent operating guide. It covers built-in discovery, schema inspection, job-writing guardrails, and the validate-before-run loop.
 
 ```bash
 dispatch skill-version   # verify skill is current
