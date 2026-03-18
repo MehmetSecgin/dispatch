@@ -7,6 +7,7 @@ import type { ConditionGroup, ConditionRule } from '../execution/conditions.js';
 import { FlowPollPayloadSchema } from '../modules/builtin/flow/schemas.js';
 import { ActionDefaultsMap, applyActionDefaults } from '../execution/action-defaults.js';
 import type { JobFileKind } from '../data/run-data.js';
+import type { ZodIssue } from 'zod';
 
 export interface ValidationIssue {
   code:
@@ -36,6 +37,7 @@ interface ValidationResult {
 
 const EXPR_RE = /\$\{([^}]+)\}/g;
 const ENV_VAR_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const FULL_INTERPOLATION_RE = /^\$\{([^}]+)\}$/;
 
 function extractExpressions(s: string): string[] {
   const out: string[] = [];
@@ -60,6 +62,46 @@ function traverseStrings(value: unknown, onString: (s: string, path: string) => 
       traverseStrings(v, onString, `${path}.${k}`);
     }
   }
+}
+
+function getValueAtIssuePath(value: unknown, path: Array<string | number>): unknown {
+  let current = value;
+  for (const segment of path) {
+    if (current == null) return undefined;
+    if (typeof segment === 'number') {
+      if (!Array.isArray(current)) return undefined;
+      current = current[segment];
+      continue;
+    }
+    if (typeof current !== 'object') return undefined;
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
+}
+
+function isDeferredInterpolationValue(value: unknown): boolean {
+  return typeof value === 'string' && FULL_INTERPOLATION_RE.test(value.trim());
+}
+
+function toValidationIssues(
+  parseIssues: ZodIssue[],
+  payload: unknown,
+  stepId: string,
+  code: 'MODULE_VALIDATION_ERROR' | 'FLOW_POLL_VALIDATION_ERROR',
+  messagePrefix?: string,
+): ValidationIssue[] {
+  const out: ValidationIssue[] = [];
+  for (const issue of parseIssues) {
+    const rawValue = getValueAtIssuePath(payload, issue.path as Array<string | number>);
+    if (isDeferredInterpolationValue(rawValue)) continue;
+    out.push({
+      code,
+      stepId,
+      path: `payload.${issue.path.join('.') || '<root>'}`,
+      message: messagePrefix ? `${messagePrefix}: ${issue.path.join('.') || '<root>'}: ${issue.message}` : issue.message,
+    });
+  }
+  return out;
 }
 
 function validateStepReference(
@@ -200,14 +242,15 @@ export function validateJobCase(
       } else {
         const parseResult = resolved.definition.schema.safeParse(payload);
         if (!parseResult.success) {
-          for (const issue of parseResult.error.issues) {
-            issues.push({
-              code: 'MODULE_VALIDATION_ERROR',
-              stepId: step.id,
-              path: `payload.${issue.path.join('.') || '<root>'}`,
-              message: `${step.action}: ${issue.path.join('.') || '<root>'}: ${issue.message}`,
-            });
-          }
+          issues.push(
+            ...toValidationIssues(
+              parseResult.error.issues,
+              payload,
+              step.id,
+              'MODULE_VALIDATION_ERROR',
+              step.action,
+            ),
+          );
         }
       }
     }
@@ -215,14 +258,7 @@ export function validateJobCase(
     if (step.action === 'flow.poll') {
       const parsedPoll = FlowPollPayloadSchema.safeParse(payload);
       if (!parsedPoll.success) {
-        for (const issue of parsedPoll.error.issues) {
-          issues.push({
-            code: 'FLOW_POLL_VALIDATION_ERROR',
-            stepId: step.id,
-            path: `payload.${issue.path.join('.')}`,
-            message: issue.message,
-          });
-        }
+        issues.push(...toValidationIssues(parsedPoll.error.issues, payload, step.id, 'FLOW_POLL_VALIDATION_ERROR'));
       } else {
         const poll = parsedPoll.data;
         if (poll.action === step.action) {

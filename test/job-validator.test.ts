@@ -204,6 +204,59 @@ describe('validateJobCase (flow-only)', () => {
     expect(result.issues.some(i => i.code === 'MODULE_VALIDATION_ERROR')).toBe(true);
   });
 
+  it('allows full interpolation expressions in typed payload fields during static validation', async () => {
+    const job = parseJob({
+      schemaVersion: 1,
+      jobType: 'interpolated-memory-value',
+      scenario: {
+        steps: [
+          { id: 'store', action: 'memory.store', payload: { namespace: 'demo', key: 'n', value: 7 } },
+          {
+            id: 'copy',
+            action: 'memory.store',
+            payload: {
+              namespace: 'demo',
+              key: 'copied',
+              value: '${step.store.response.value}',
+            },
+          },
+        ],
+      },
+    });
+
+    const { registry } = await loadModuleRegistry();
+    const result = validateJobCase(job, registry, {}, { jobKind: 'seed' });
+    expect(result.valid).toBe(true);
+    expect(result.issues.some(i => i.code === 'MODULE_VALIDATION_ERROR')).toBe(false);
+  });
+
+  it('still rejects non-interpolated literal type mismatches during static validation', async () => {
+    const job = parseJob({
+      schemaVersion: 1,
+      jobType: 'literal-sleep-duration-mismatch',
+      scenario: {
+        steps: [
+          {
+            id: 'sleep',
+            action: 'flow.sleep',
+            payload: {
+              duration: 1,
+            },
+          },
+        ],
+      },
+    });
+
+    const { registry } = await loadModuleRegistry();
+    const result = validateJobCase(job, registry);
+    expect(result.valid).toBe(false);
+    expect(
+      result.issues.some(
+        i => i.code === 'MODULE_VALIDATION_ERROR' && i.path === 'payload.duration',
+      ),
+    ).toBe(true);
+  });
+
   it('rejects memory.store in case jobs', () => {
     const job = parseJob({
       schemaVersion: 1,
