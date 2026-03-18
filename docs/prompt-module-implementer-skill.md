@@ -145,7 +145,28 @@ Validate against `schemas/module.json.schema.json`.
 
 If the workspace has existing modules, copy their `tsup` pattern and adjust paths.
 
-Otherwise use the default from `MODULE_AUTHORING.md`.
+Otherwise use the default from `MODULE_AUTHORING.md`:
+
+```ts
+import { defineConfig } from 'tsup';
+
+export default defineConfig({
+  entry: ['src/index.ts'],
+  format: ['esm'],
+  platform: 'node',
+  target: 'node20',
+  external: ['dispatchkit', 'zod'],
+  clean: true,
+  bundle: true,
+  outDir: 'dist',
+  outExtension() {
+    return { js: '.mjs' };
+  },
+});
+```
+
+`external: ['dispatchkit', 'zod']` is required — the runtime provides these at
+load time. Do not bundle them into the output.
 
 #### 5g. `tsconfig.json`
 

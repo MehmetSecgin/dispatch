@@ -102,6 +102,7 @@ Agent-native product principles live in [docs/agent-native.md](docs/agent-native
 HTTP auth/session behavior for module authors lives in [docs/modules/http-auth.md](docs/modules/http-auth.md).
 Packaged module-author guidance lives in [MODULE_AUTHORING.md](MODULE_AUTHORING.md) and [CONVENTIONS.md](CONVENTIONS.md).
 Specialized agent recipes live in [docs/prompt-module-implementer-skill.md](docs/prompt-module-implementer-skill.md) and [docs/prompt-module-extender-skill.md](docs/prompt-module-extender-skill.md).
+Consumer-repo agent bootstrap guidance lives in [docs/integrations/agent-job-authoring-bootstrap.md](docs/integrations/agent-job-authoring-bootstrap.md).
 
 ---
 
