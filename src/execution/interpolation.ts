@@ -31,6 +31,13 @@ export interface RuntimeContext {
   configDir: string;
 
   /**
+   * Caller-supplied job inputs resolved before execution begins.
+   *
+   * Values here become addressable as `${input.<name>}`.
+   */
+  input: JsonObject;
+
+  /**
    * Workflow-level captured values and run metadata.
    *
    * Values written here become addressable as `${run.<name>}`.
@@ -74,6 +81,10 @@ function evaluateExpression(exprRaw: string, ctx: RuntimeContext): unknown {
   if (expr.startsWith('env.')) {
     const envName = expr.slice(4);
     const value = process.env[envName];
+    return value == null ? '' : value;
+  }
+  if (expr.startsWith('input.')) {
+    const value = deepGetByPath(ctx.input, expr.slice(6));
     return value == null ? '' : value;
   }
   if (expr.startsWith('run.')) {

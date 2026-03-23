@@ -53,6 +53,7 @@ export async function executeJobCase(
     verbose?: boolean;
     color?: boolean;
     runtimeOverrides?: JsonObject;
+    runtimeInputs?: JsonObject;
     poolRegistry?: HttpPoolRegistry;
     renderer?: Renderer;
   },
@@ -62,6 +63,7 @@ export async function executeJobCase(
   const runtime: RuntimeContext = defaultRuntime(opts.cliVersion, {
     overrides: opts.runtimeOverrides,
   });
+  runtime.input = { ...(opts.runtimeInputs ?? {}) };
   runtime.run.startedAt = nowIso();
   const resolvedHttp = resolveJobHttpConfig(job.http, runtime);
   const http = new HttpTransport(artifacts, {

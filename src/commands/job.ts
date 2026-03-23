@@ -49,6 +49,7 @@ import {
   type DependencyIssue,
 } from '../job/dependencies.js';
 import { inspectJobCredentials } from '../job/credentials.js';
+import { resolveJobInputs } from '../job/inputs.js';
 import { cliErrorFromCode, exitCodeForCliError, jsonErrorEnvelope } from '../core/errors.js';
 import { nextActionsForJobAssert, nextActionsForJobRun, nextActionsForRunMany } from '../job/next-actions.js';
 
@@ -122,6 +123,11 @@ function formatCredentialIssue(issue: { path: string; message: string }): string
   return issue.path ? `${issue.path}: ${issue.message}` : issue.message;
 }
 
+function collectRepeatedOption(value: string, previous: string[] = []): string[] {
+  previous.push(value);
+  return previous;
+}
+
 export function registerJobCommands(
   program: Command,
   deps: {
@@ -134,6 +140,7 @@ export function registerJobCommands(
     .command('run')
     .description('Run a job case')
     .requiredOption('--case <path>')
+    .option('--input <key=value>', 'Caller-supplied job input', collectRepeatedOption, [])
     .option('--resolve-deps', 'Run fill jobs for missing memory dependencies before the main job', false)
     .action(async (cmd) => {
       const opts = program.opts<CliOpts>();
@@ -142,10 +149,28 @@ export function registerJobCommands(
       const jc = loadCase(casePath);
       const { registry, warnings } = await loadModuleRegistry({ searchFrom: [path.dirname(casePath)] });
       const runtime = defaultRuntime(deps.cliVersion);
+      const inputCheck = resolveJobInputs(jc, cmd.input);
       const actionDefaults = loadActionDefaults();
       const initialValidation = validateJobCase(jc, cmd.resolveDeps ? undefined : registry, actionDefaults, {
         jobKind: inferJobFileKind(casePath),
       });
+      if (!inputCheck.valid) {
+        const details = {
+          casePath,
+          inputIssues: inputCheck.issues,
+          warnings: [...warnings, ...initialValidation.warnings],
+        };
+        renderer.render({
+          json: jsonErrorEnvelope(cliErrorFromCode('USAGE_ERROR', 'job input preflight failed', details)),
+          human: [
+            `✗ Missing or invalid inputs for ${userPathDisplay(String(cmd.case))}`,
+            ...inputCheck.issues.map((issue) => `- ${issue.path}: ${issue.message}`),
+          ],
+        });
+        process.exitCode = exitCodeForCliError(cliErrorFromCode('USAGE_ERROR', 'job input preflight failed'));
+        return;
+      }
+      runtime.input = inputCheck.values;
       if (!initialValidation.valid) {
         const details = {
           casePath,
@@ -270,6 +295,7 @@ export function registerJobCommands(
           cliVersion: deps.cliVersion,
           verbose: !!opts.verbose,
           color: isColorEnabled(opts),
+          runtimeInputs: inputCheck.values,
           renderer,
         });
         const next = nextActionsForJobRun({
@@ -298,6 +324,7 @@ export function registerJobCommands(
     .command('run-many')
     .description('Run the same job case multiple times in parallel')
     .requiredOption('--case <path>', 'Job case path')
+    .option('--input <key=value>', 'Caller-supplied job input', collectRepeatedOption, [])
     .requiredOption('--count <n>', 'Number of runs')
     .option('--concurrency <n>', 'Parallel workers (default 5, max 20)', '5')
     .option('--stagger-ms <n>', 'Delay between launching each run in milliseconds', '0')
@@ -321,10 +348,19 @@ export function registerJobCommands(
       const jc = loadCase(casePath);
       const { registry, warnings } = await loadModuleRegistry({ searchFrom: [path.dirname(casePath)] });
       const runtime = defaultRuntime(deps.cliVersion);
+      const inputCheck = resolveJobInputs(jc, cmd.input);
       const validation = validateJobCase(jc, registry, loadActionDefaults(), {
         jobKind: inferJobFileKind(casePath),
       });
       const credentialCheck = inspectJobCredentials(jc, registry, { requireEnv: true });
+      if (!inputCheck.valid) {
+        const first = inputCheck.issues[0];
+        throw new Error(
+          `Input preflight failed for ${userPathDisplay(cmd.case)}: ` +
+            `${first.path ? `${first.path}: ` : ''}${first.message}`,
+        );
+      }
+      runtime.input = inputCheck.values;
       if (!validation.valid) {
         const first = validation.issues[0];
         throw new Error(
@@ -439,6 +475,7 @@ export function registerJobCommands(
                 batchCount: input.batchCount,
                 workerId: input.workerId,
               },
+              runtimeInputs: inputCheck.values,
               renderer,
             });
             return {
@@ -925,6 +962,7 @@ export function registerJobCommands(
     .command('validate')
     .description('Validate job schema and module-resolved actions')
     .requiredOption('--case <path>')
+    .option('--input <key=value>', 'Caller-supplied job input', collectRepeatedOption, [])
     .action(async (cmd) => {
       const opts = program.opts();
       const renderer = createRenderer({ json: !!opts.json });
@@ -956,14 +994,17 @@ export function registerJobCommands(
         return;
       }
 
+      const inputCheck = resolveJobInputs(parsed.data, cmd.input);
       const result = validateJobCase(parsed.data, registry, loadActionDefaults(), {
         jobKind: inferJobFileKind(casePath),
       });
       const credentialCheck = inspectJobCredentials(parsed.data, registry);
-      const httpConfigCheck = inspectEffectiveJobHttpConfig(parsed.data, defaultRuntime(deps.cliVersion));
+      const runtime = defaultRuntime(deps.cliVersion);
+      runtime.input = inputCheck.values;
+      const httpConfigCheck = inspectEffectiveJobHttpConfig(parsed.data, runtime);
       const dependencyCheck = inspectJobDependencies(parsed.data, {
         registry,
-        configDir: defaultRuntime(deps.cliVersion).configDir,
+        configDir: runtime.configDir,
         effectiveHttp: httpConfigCheck.effectiveHttp,
       });
       const dependencyIssuesForOutput = httpConfigCheck.valid
@@ -971,7 +1012,7 @@ export function registerJobCommands(
         : dependencyCheck.issues.filter((issue) => issue.dependencyType !== 'http');
       const declaredHttpDeps = summarizeDeclaredHttpDependencies(parsed.data);
       const declaredMemoryDeps = summarizeDeclaredMemoryDependencies(parsed.data);
-      const valid = result.valid && credentialCheck.valid && httpConfigCheck.valid && dependencyCheck.valid;
+      const valid = inputCheck.valid && result.valid && credentialCheck.valid && httpConfigCheck.valid && dependencyCheck.valid;
       if (!!opts.json) {
         if (valid) {
           renderer.jsonOut({ valid: true, casePath, warnings: [...warnings, ...result.warnings] });
@@ -981,6 +1022,7 @@ export function registerJobCommands(
               cliErrorFromCode('USAGE_ERROR', 'job case validation failed', {
                 casePath,
                 issues: result.issues,
+                inputIssues: inputCheck.issues,
                 credentialIssues: credentialCheck.issues,
                 dependencyIssues: [...httpConfigCheck.issues, ...dependencyIssuesForOutput],
                 warnings: [...warnings, ...result.warnings],
@@ -1011,6 +1053,7 @@ export function registerJobCommands(
           json: null,
           human: [
             `✗ Invalid ${userPathDisplay(String(cmd.case))}`,
+            ...inputCheck.issues.map((issue) => `- ${issue.path}: ${issue.message}`),
             ...result.issues.map((issue) => {
               const step = issue.stepId ? `[${issue.stepId}] ` : '';
               const p = issue.path ? `${issue.path}: ` : '';

@@ -114,6 +114,13 @@ A job case is a portable JSON file: shareable, versionable, replayable.
 {
   "schemaVersion": 1,
   "jobType": "my-workflow",
+  "inputs": {
+    "resourceId": {
+      "type": "number",
+      "required": true,
+      "description": "Caller-supplied resource identifier"
+    }
+  },
   "scenario": {
     "steps": [
       { "id": "pause", "action": "flow.sleep", "payload": { "duration": "1s" } },
@@ -122,7 +129,7 @@ A job case is a portable JSON file: shareable, versionable, replayable.
         "action": "flow.poll",
         "payload": {
           "action": "probe.get-status",
-          "payload": { "id": "${run.targetId}" },
+          "payload": { "id": "${input.resourceId}" },
           "intervalMs": 1000,
           "maxDurationMs": 10000,
           "conditions": {
@@ -138,10 +145,27 @@ A job case is a portable JSON file: shareable, versionable, replayable.
 ```
 
 - Actions are always namespaced as `module.action`
+- Use `${input.<name>}` for caller-supplied runtime inputs declared under top-level `inputs`
 - Use `${step.<id>.response.*}` for prior response data
 - Use `${step.<id>.exports.*}` for same-run workflow values
 - Use `capture` only to promote `exports.*` into `run.*`
 - Keep same-run values in `step.*` or `run.*`, not in persistent memory
+
+Example invocation:
+
+```bash
+dispatch job validate --case my.job.case.json --input resourceId=123
+dispatch job run --case my.job.case.json --input resourceId=123
+```
+
+If multiple values are required, repeat `--input`:
+
+```bash
+dispatch job run --case my.job.case.json \
+  --input resourceId=123 \
+  --input enabled=true \
+  --input label=demo-resource
+```
 
 Detailed references:
 
@@ -156,8 +180,8 @@ Detailed references:
 Every command supports dual output mode:
 
 ```bash
-dispatch job run --case my.job.case.json         # human mode
-dispatch job run --case my.job.case.json --json  # machine mode
+dispatch job run --case my.job.case.json --input resourceId=123         # human mode
+dispatch job run --case my.job.case.json --input resourceId=123 --json  # machine mode
 ```
 
 **Machine mode** (`--json`) returns stable JSON envelopes:
@@ -214,9 +238,9 @@ Written on both success and failure. Assert offline. Replay without network.
 ### Jobs
 
 ```bash
-dispatch job validate --case <path>
-dispatch job run --case <path> [--resolve-deps]
-dispatch job run-many --case <path> --count <n> --concurrency <n>
+dispatch job validate --case <path> [--input <key=value>]
+dispatch job run --case <path> [--input <key=value>] [--resolve-deps]
+dispatch job run-many --case <path> [--input <key=value>] --count <n> --concurrency <n>
 dispatch job assert --run-id <id|latest>
 dispatch job inspect --run-id <id|latest> [--step <n>]
 dispatch job readable --run-id <id|latest>

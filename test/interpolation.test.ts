@@ -4,6 +4,10 @@ import { interpolateAny, type RuntimeContext } from '../src/execution/interpolat
 function runtimeContext(): RuntimeContext {
   return {
     configDir: '/tmp/dispatch-test',
+    input: {
+      resourceId: 123,
+      enabled: true,
+    },
     run: {
       cliVersion: '0.0.1',
       startedAt: '2026-03-07T12:00:00.000Z',
@@ -109,6 +113,21 @@ describe('interpolateAny', () => {
         tags: ['featured'],
       },
       title: 'Event id-123',
+    });
+  });
+
+  it('reads caller-supplied inputs for full-expression and embedded values', () => {
+    const out = interpolateAny(
+      {
+        resourceId: '${input.resourceId}',
+        title: 'enabled=${input.enabled}',
+      },
+      runtimeContext(),
+    );
+
+    expect(out).toEqual({
+      resourceId: 123,
+      title: 'enabled=true',
     });
   });
 });

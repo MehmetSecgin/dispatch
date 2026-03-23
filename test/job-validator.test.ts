@@ -140,6 +140,94 @@ describe('validateJobCase (flow-only)', () => {
     expect(result.issues).toHaveLength(0);
   });
 
+  it('accepts declared input interpolation in payloads and job http config', () => {
+    const job = parseJob({
+      schemaVersion: 1,
+      jobType: 'input-http-and-payload',
+      inputs: {
+        resourceId: {
+          type: 'number',
+          required: true,
+        },
+      },
+      http: {
+        defaultHeaders: {
+          'x-resource-id': '${input.resourceId}',
+          'x-started-at': '${run.startedAt}',
+        },
+      },
+      scenario: {
+        steps: [
+          {
+            id: 's1',
+            action: 'flow.sleep',
+            payload: {
+              duration: '${input.resourceId}',
+            },
+          },
+        ],
+      },
+    });
+
+    const result = validateJobCase(job);
+    expect(result.valid).toBe(true);
+    expect(result.issues).toHaveLength(0);
+  });
+
+  it('rejects undeclared input interpolation', () => {
+    const job = parseJob({
+      schemaVersion: 1,
+      jobType: 'missing-input-ref',
+      inputs: {
+        resourceId: {
+          type: 'number',
+        },
+      },
+      scenario: {
+        steps: [
+          {
+            id: 's1',
+            action: 'flow.sleep',
+            payload: {
+              duration: '${input.missing}',
+            },
+          },
+        ],
+      },
+    });
+
+    const result = validateJobCase(job);
+    expect(result.valid).toBe(false);
+    expect(result.issues.some(i => i.code === 'INVALID_INTERPOLATION' && i.message.includes('Unknown input reference'))).toBe(true);
+  });
+
+  it('rejects malformed input interpolation', () => {
+    const job = parseJob({
+      schemaVersion: 1,
+      jobType: 'bad-input-ref',
+      inputs: {
+        resourceId: {
+          type: 'number',
+        },
+      },
+      scenario: {
+        steps: [
+          {
+            id: 's1',
+            action: 'flow.sleep',
+            payload: {
+              duration: '${input.}',
+            },
+          },
+        ],
+      },
+    });
+
+    const result = validateJobCase(job);
+    expect(result.valid).toBe(false);
+    expect(result.issues.some(i => i.code === 'INVALID_INTERPOLATION' && i.message.includes('Invalid input reference'))).toBe(true);
+  });
+
   it('rejects step interpolation inside job http config', () => {
     const job = parseJob({
       schemaVersion: 1,

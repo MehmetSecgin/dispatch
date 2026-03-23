@@ -350,6 +350,364 @@ describe('job CLI', () => {
     }
   });
 
+  it('validates declared caller inputs', () => {
+    fs.mkdirSync(HTTP_FIXTURE_MODULE_DIR, { recursive: true });
+    fs.writeFileSync(
+      path.join(HTTP_FIXTURE_MODULE_DIR, 'module.json'),
+      `${JSON.stringify(
+        {
+          name: HTTP_FIXTURE_MODULE_NAME,
+          version: '1.0.0',
+          entry: 'index.mjs',
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(HTTP_FIXTURE_MODULE_DIR, 'index.mjs'),
+      [
+        `import { defineAction, defineModule } from ${SDK_IMPORT};`,
+        `import { z } from ${ZOD_IMPORT};`,
+        'export default defineModule({',
+        `  name: '${HTTP_FIXTURE_MODULE_NAME}',`,
+        "  version: '1.0.0',",
+        '  actions: {',
+        "    'accept-input': defineAction({",
+        "      description: 'Accept caller supplied input.',",
+        '      schema: z.object({ resourceId: z.number().int().positive() }),',
+        "      handler: async (_ctx, payload) => ({ response: payload, detail: 'accepted input' }),",
+        '    }),',
+        '  },',
+        '});',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const casePath = path.join(HTTP_FIXTURE_MODULE_DIR, 'declared-input.job.case.json');
+    fs.writeFileSync(
+      casePath,
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          jobType: 'declared-input',
+          inputs: {
+            resourceId: {
+              type: 'number',
+              required: true,
+            },
+          },
+          scenario: {
+            steps: [
+              {
+                id: 'accept',
+                action: `${HTTP_FIXTURE_MODULE_NAME}.accept-input`,
+                payload: {
+                  resourceId: '${input.resourceId}',
+                },
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+
+    const result = runCli(['job', 'validate', '--case', path.relative(REPO_ROOT, casePath), '--input', 'resourceId=123']);
+
+    expect(result.status).toBe(0);
+    expect(result.json).toEqual(expect.objectContaining({ valid: true }));
+  });
+
+  it('fails job validate when required caller input is missing', () => {
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-job-cli-test-'));
+    const casePath = path.join(homeDir, 'missing-input.job.case.json');
+    fs.writeFileSync(
+      casePath,
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          jobType: 'missing-input',
+          inputs: {
+            resourceId: {
+              type: 'number',
+              required: true,
+            },
+          },
+          scenario: {
+            steps: [
+              {
+                id: 'sleep',
+                action: 'flow.sleep',
+                payload: {
+                  duration: '1ms',
+                },
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+
+    const result = runCli(['job', 'validate', '--case', casePath], { HOME: homeDir });
+
+    expect(result.status).toBe(2);
+    expect(result.json).toEqual(expect.objectContaining({
+      status: 'error',
+      code: 'USAGE_ERROR',
+      message: 'job case validation failed',
+      details: expect.objectContaining({
+        inputIssues: expect.arrayContaining([
+          expect.objectContaining({
+            message: expect.stringContaining("Required input 'resourceId' was not provided"),
+          }),
+        ]),
+      }),
+    }));
+  });
+
+  it('fails job validate when caller input is unknown', () => {
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-job-cli-test-'));
+    const casePath = path.join(homeDir, 'unknown-input.job.case.json');
+    fs.writeFileSync(
+      casePath,
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          jobType: 'unknown-input',
+          inputs: {
+            resourceId: {
+              type: 'number',
+            },
+          },
+          scenario: {
+            steps: [
+              {
+                id: 'sleep',
+                action: 'flow.sleep',
+                payload: {
+                  duration: '1ms',
+                },
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+
+    const result = runCli(['job', 'validate', '--case', casePath, '--input', 'otherId=123'], { HOME: homeDir });
+
+    expect(result.status).toBe(2);
+    expect(result.json).toEqual(expect.objectContaining({
+      status: 'error',
+      code: 'USAGE_ERROR',
+      message: 'job case validation failed',
+      details: expect.objectContaining({
+        inputIssues: expect.arrayContaining([
+          expect.objectContaining({
+            message: expect.stringContaining("Input 'otherId' is not declared"),
+          }),
+        ]),
+      }),
+    }));
+  });
+
+  it('fails job validate when caller input cannot be parsed to the declared type', () => {
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-job-cli-test-'));
+    const casePath = path.join(homeDir, 'bad-input-type.job.case.json');
+    fs.writeFileSync(
+      casePath,
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          jobType: 'bad-input-type',
+          inputs: {
+            enabled: {
+              type: 'boolean',
+              required: true,
+            },
+          },
+          scenario: {
+            steps: [
+              {
+                id: 'sleep',
+                action: 'flow.sleep',
+                payload: {
+                  duration: '1ms',
+                },
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+
+    const result = runCli(['job', 'validate', '--case', casePath, '--input', 'enabled=yes'], { HOME: homeDir });
+
+    expect(result.status).toBe(2);
+    expect(result.json).toEqual(expect.objectContaining({
+      status: 'error',
+      code: 'USAGE_ERROR',
+      message: 'job case validation failed',
+      details: expect.objectContaining({
+        inputIssues: expect.arrayContaining([
+          expect.objectContaining({
+            message: expect.stringContaining("must be 'true' or 'false'"),
+          }),
+        ]),
+      }),
+    }));
+  });
+
+  it('runs a job with typed caller inputs and writes them to the resolved case artifact only', () => {
+    fs.mkdirSync(HTTP_FIXTURE_MODULE_DIR, { recursive: true });
+    fs.writeFileSync(
+      path.join(HTTP_FIXTURE_MODULE_DIR, 'module.json'),
+      `${JSON.stringify(
+        {
+          name: HTTP_FIXTURE_MODULE_NAME,
+          version: '1.0.0',
+          entry: 'index.mjs',
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(HTTP_FIXTURE_MODULE_DIR, 'index.mjs'),
+      [
+        `import { defineAction, defineModule } from ${SDK_IMPORT};`,
+        `import { z } from ${ZOD_IMPORT};`,
+        '',
+        'export default defineModule({',
+        `  name: '${HTTP_FIXTURE_MODULE_NAME}',`,
+        "  version: '1.0.0',",
+        '  actions: {',
+        "    'accept-typed-inputs': defineAction({",
+        "      description: 'Accept typed caller supplied inputs.',",
+        '      schema: z.object({',
+        '        resourceId: z.number().int().positive(),',
+        '        enabled: z.boolean(),',
+        '        label: z.string().min(1),',
+        '      }),',
+        "      handler: async (_ctx, payload) => ({ response: payload, detail: `resource ${payload.resourceId}` }),",
+        '    }),',
+        '  },',
+        '});',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const casePath = path.join(HTTP_FIXTURE_MODULE_DIR, 'typed-inputs.job.case.json');
+    fs.writeFileSync(
+      casePath,
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          jobType: 'typed-inputs',
+          inputs: {
+            resourceId: {
+              type: 'number',
+              required: true,
+            },
+            enabled: {
+              type: 'boolean',
+              required: true,
+            },
+            label: {
+              type: 'string',
+              required: true,
+            },
+          },
+          http: {
+            defaultHeaders: {
+              'x-resource-id': '${input.resourceId}',
+              'x-enabled': '${input.enabled}',
+              'x-label': '${input.label}',
+            },
+          },
+          scenario: {
+            steps: [
+              {
+                id: 'accept',
+                action: `${HTTP_FIXTURE_MODULE_NAME}.accept-typed-inputs`,
+                payload: {
+                  resourceId: '${input.resourceId}',
+                  enabled: '${input.enabled}',
+                  label: '${input.label}',
+                },
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+
+    const result = runCli([
+      'job',
+      'run',
+      '--case',
+      path.relative(REPO_ROOT, casePath),
+      '--input',
+      'resourceId=123',
+      '--input',
+      'enabled=true',
+      '--input',
+      'label=demo-resource',
+    ]);
+
+    expect(result.status).toBe(0);
+    expect(result.json).toEqual(expect.objectContaining({
+      status: 'SUCCESS',
+      runDir: expect.any(String),
+    }));
+
+    const resolvedCase = JSON.parse(fs.readFileSync(path.join(result.json?.runDir, 'job.case.resolved.json'), 'utf8'));
+    expect(resolvedCase.http).toEqual({
+      defaultHeaders: {
+        'x-resource-id': '123',
+        'x-enabled': 'true',
+        'x-label': 'demo-resource',
+      },
+    });
+    expect(resolvedCase.scenario.steps[0].payload).toEqual({
+      resourceId: 123,
+      enabled: true,
+      label: 'demo-resource',
+    });
+
+    const inputCase = JSON.parse(fs.readFileSync(path.join(result.json?.runDir, 'job.case.input.json'), 'utf8'));
+    expect(inputCase.http).toEqual({
+      defaultHeaders: {
+        'x-resource-id': '${input.resourceId}',
+        'x-enabled': '${input.enabled}',
+        'x-label': '${input.label}',
+      },
+    });
+    expect(inputCase.scenario.steps[0].payload).toEqual({
+      resourceId: '${input.resourceId}',
+      enabled: '${input.enabled}',
+      label: '${input.label}',
+    });
+  });
+
   it('captures action exports into run scope for later steps', () => {
     fs.mkdirSync(HTTP_FIXTURE_MODULE_DIR, { recursive: true });
     fs.writeFileSync(

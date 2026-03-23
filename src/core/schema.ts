@@ -35,6 +35,14 @@ const CredentialProfileSchema = z.object({
   fromEnv: z.record(z.string().min(1), EnvVarNameSchema),
 });
 
+const JobInputTypeSchema = z.enum(['string', 'number', 'boolean']);
+
+const JobInputSchema = z.object({
+  type: JobInputTypeSchema,
+  required: z.boolean().optional(),
+  description: z.string().min(1).optional(),
+});
+
 const StepSchema = z
   .object({
     id: z.string().min(1).optional(),
@@ -85,6 +93,7 @@ const JobHttpSchema = z.object({
 export const JobCaseSchema = z.object({
   schemaVersion: z.number().int().min(1),
   jobType: z.string().min(1),
+  inputs: z.record(z.string().min(1), JobInputSchema).optional(),
   http: JobHttpSchema.optional(),
   credentials: z.record(z.string().min(1), CredentialProfileSchema).optional(),
   dependencies: JobDependenciesSchema.optional(),
@@ -98,6 +107,8 @@ export const JobCaseSchema = z.object({
 export type JobCase = z.infer<typeof JobCaseSchema>;
 export type JobHttpConfig = z.infer<typeof JobHttpSchema>;
 export type CredentialProfile = z.infer<typeof CredentialProfileSchema>;
+export type JobInputType = z.infer<typeof JobInputTypeSchema>;
+export type JobInput = z.infer<typeof JobInputSchema>;
 export type JobDependencies = z.infer<typeof JobDependenciesSchema>;
 export type ModuleDependency = z.infer<typeof ModuleDependencySchema>;
 export type MemoryDependency = z.infer<typeof MemoryDependencySchema>;

@@ -38,6 +38,7 @@ interface ValidationResult {
 const EXPR_RE = /\$\{([^}]+)\}/g;
 const ENV_VAR_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const FULL_INTERPOLATION_RE = /^\$\{([^}]+)\}$/;
+const INPUT_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 function extractExpressions(s: string): string[] {
   const out: string[] = [];
@@ -326,6 +327,7 @@ export function validateJobCase(
         stepId: step.id,
         currentStepIndex: i,
         stepIndex,
+        declaredInputs: new Set(Object.keys(job.inputs ?? {})),
         issues,
         allowStepReferences: true,
         allowJsonPathStepScope: true,
@@ -339,6 +341,7 @@ export function validateJobCase(
       validateInterpolationString({
         value: s,
         path: strPath,
+        declaredInputs: new Set(Object.keys(job.inputs ?? {})),
         issues,
         stepIndex,
         allowStepReferences: false,
@@ -364,6 +367,7 @@ function validateInterpolationString(input: {
   path: string;
   issues: ValidationIssue[];
   stepIndex: Map<string, number>;
+  declaredInputs: Set<string>;
   stepId?: string;
   currentStepIndex?: number;
   allowStepReferences: boolean;
@@ -392,6 +396,29 @@ function validateInterpolationString(input: {
         path: input.path,
         message: `Invalid environment variable reference '${expr}'`,
       });
+      continue;
+    }
+
+    const inputExpr = expr.match(/^input\.(.*)$/);
+    if (inputExpr) {
+      const [topLevel, ...rest] = inputExpr[1].split('.');
+      if (!INPUT_NAME_RE.test(topLevel) || rest.some((segment) => segment.trim().length === 0)) {
+        input.issues.push({
+          code: 'INVALID_INTERPOLATION',
+          stepId: input.stepId,
+          path: input.path,
+          message: `Invalid input reference '${expr}'`,
+        });
+        continue;
+      }
+      if (!input.declaredInputs.has(topLevel)) {
+        input.issues.push({
+          code: 'INVALID_INTERPOLATION',
+          stepId: input.stepId,
+          path: input.path,
+          message: `Unknown input reference '${expr}'`,
+        });
+      }
       continue;
     }
 

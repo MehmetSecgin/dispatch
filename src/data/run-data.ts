@@ -125,6 +125,7 @@ export function defaultRuntime(
 ): RuntimeContext {
   return {
     configDir: opts?.configDir ?? getDispatchHomeDir(),
+    input: {},
     run: {
       cliVersion,
       startedAt: new Date().toISOString(),
