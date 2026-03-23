@@ -8,6 +8,7 @@ import { resolveMemoryPath } from '../src/modules/builtin/memory/store.ts';
 
 const THIS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(THIS_DIR, '..');
+const TSX_LOADER = path.join(REPO_ROOT, 'node_modules', 'tsx', 'dist', 'loader.mjs');
 const SDK_IMPORT = JSON.stringify(pathToFileURL(path.join(REPO_ROOT, 'src', 'index.ts')).href);
 const ZOD_IMPORT = JSON.stringify(pathToFileURL(path.join(REPO_ROOT, 'node_modules', 'zod', 'index.js')).href);
 const HTTP_FIXTURE_MODULE_NAME = `zz-job-http-fixture-${process.pid}`;
@@ -49,6 +50,25 @@ function runCliHuman(args: string[], env?: NodeJS.ProcessEnv) {
   };
 }
 
+function runCliIn(cwd: string, args: string[], env?: NodeJS.ProcessEnv) {
+  const out = spawnSync(process.execPath, ['--import', TSX_LOADER, path.join(REPO_ROOT, 'src', 'cli.ts'), '--json', ...args], {
+    cwd,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      ...env,
+    },
+  });
+
+  const stdout = out.stdout.trim();
+  return {
+    status: out.status,
+    stdout,
+    stderr: out.stderr,
+    json: stdout ? JSON.parse(stdout) : null,
+  };
+}
+
 afterEach(() => {
   for (const entry of fs.readdirSync(os.tmpdir())) {
     if (entry.startsWith('dispatch-job-cli-test-')) {
@@ -59,6 +79,65 @@ afterEach(() => {
 });
 
 describe('job CLI', () => {
+  it('validates a workspace job against repo-local modules even when invoked outside the repo root', () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-job-cli-test-'));
+    const externalCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-job-cli-test-'));
+    const moduleDir = path.join(workspaceDir, 'modules', 'workspace-job-fixture');
+    fs.mkdirSync(moduleDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(moduleDir, 'module.json'),
+      `${JSON.stringify({ name: 'workspace-job-fixture', version: '1.0.0', entry: 'index.mjs' }, null, 2)}\n`,
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(moduleDir, 'index.mjs'),
+      [
+        `import { defineAction, defineModule } from ${SDK_IMPORT};`,
+        `import { z } from ${ZOD_IMPORT};`,
+        'export default defineModule({',
+        "  name: 'workspace-job-fixture',",
+        "  version: '1.0.0',",
+        '  actions: {',
+        '    ping: defineAction({',
+        "      description: 'Ping a workspace-local action.',",
+        '      schema: z.object({}),',
+        "      handler: async () => ({ response: { ok: true }, detail: 'pong' }),",
+        '    }),',
+        '  },',
+        '});',
+      ].join('\n'),
+      'utf8',
+    );
+    const casePath = path.join(workspaceDir, 'jobs', 'workspace.job.case.json');
+    fs.mkdirSync(path.dirname(casePath), { recursive: true });
+    fs.writeFileSync(
+      casePath,
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          jobType: 'workspace-job',
+          scenario: {
+            steps: [
+              {
+                id: 'ping',
+                action: 'workspace-job-fixture.ping',
+                payload: {},
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+
+    const result = runCliIn(externalCwd, ['job', 'validate', '--case', casePath]);
+
+    expect(result.status).toBe(0);
+    expect(result.json).toEqual(expect.objectContaining({ valid: true }));
+  });
+
   it('captures action exports into run scope for later steps', () => {
     fs.mkdirSync(HTTP_FIXTURE_MODULE_DIR, { recursive: true });
     fs.writeFileSync(

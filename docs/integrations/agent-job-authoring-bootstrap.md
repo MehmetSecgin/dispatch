@@ -14,15 +14,17 @@ jobs first.
 
 When a task is to create or repair a dispatch job:
 
-1. Start with `dispatch module list` to inventory available modules.
-2. Discover built-in capabilities before choosing actions:
+1. On a fresh clone with repo-local modules, run `dispatch module bootstrap`
+   once from the workspace root.
+2. Start with `dispatch module list` to inventory available modules.
+3. Discover built-in capabilities before choosing actions:
    - `dispatch module inspect flow` — lists orchestration actions (sleep, poll, etc.)
    - `dispatch module inspect memory` — lists durable-state actions (recall, store, etc.)
    These tell you what dispatch can do natively. Do not skip them.
-3. Once you know which actions you need, inspect each contract:
+4. Once you know which actions you need, inspect each contract:
    - `dispatch schema action --name <module.action> --print`
-4. Read nearby job files only after CLI discovery, to learn local conventions.
-5. Validate before handoff:
+5. Read nearby job files only after CLI discovery, to learn local conventions.
+6. Validate before handoff:
    - `dispatch job validate --case <path>`
 
 Use source-reading and existing jobs to learn local patterns, but do not use

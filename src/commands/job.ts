@@ -140,7 +140,7 @@ export function registerJobCommands(
       const renderer = createRenderer({ json: !!opts.json, color: isColorEnabled(opts) });
       const casePath = resolveCasePath(cmd.case);
       const jc = loadCase(casePath);
-      const { registry, warnings } = await loadModuleRegistry();
+      const { registry, warnings } = await loadModuleRegistry({ searchFrom: [path.dirname(casePath)] });
       const runtime = defaultRuntime(deps.cliVersion);
       const actionDefaults = loadActionDefaults();
       const initialValidation = validateJobCase(jc, cmd.resolveDeps ? undefined : registry, actionDefaults, {
@@ -319,7 +319,7 @@ export function registerJobCommands(
 
       const casePath = resolveCasePath(cmd.case);
       const jc = loadCase(casePath);
-      const { registry, warnings } = await loadModuleRegistry();
+      const { registry, warnings } = await loadModuleRegistry({ searchFrom: [path.dirname(casePath)] });
       const runtime = defaultRuntime(deps.cliVersion);
       const validation = validateJobCase(jc, registry, loadActionDefaults(), {
         jobKind: inferJobFileKind(casePath),
@@ -931,7 +931,7 @@ export function registerJobCommands(
       const casePath = resolveCasePath(cmd.case);
       const raw = readJson(casePath);
       const parsed = JobCaseSchema.safeParse(raw);
-      const { registry, warnings } = await loadModuleRegistry();
+      const { registry, warnings } = await loadModuleRegistry({ searchFrom: [path.dirname(casePath)] });
       if (!parsed.success) {
         const issues = parsed.error.issues.map((i) => ({
           code: 'SCHEMA_ERROR',

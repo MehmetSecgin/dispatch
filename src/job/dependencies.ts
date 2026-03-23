@@ -10,6 +10,7 @@ import { loadModuleFromDir } from '../modules/loader.js';
 import { fetchModuleFromRegistry } from '../modules/remote.js';
 import { ModuleRegistry } from '../modules/registry.js';
 import type { ModuleDefinition } from '../modules/internal-types.js';
+import { findLocalModuleCandidate } from '../modules/workspace.js';
 import { HttpPoolRegistry } from '../services/http-pool.js';
 import { executeJobCase, resolveJobHttpConfig } from './runner.js';
 import type { NextAction } from './next-actions.js';
@@ -140,6 +141,13 @@ function nextActionForModuleInstall(dep: ModuleDependency): NextAction | null {
   };
 }
 
+function nextActionForModuleBootstrap(moduleName: string): NextAction {
+  return {
+    command: 'dispatch module bootstrap',
+    description: `install repo-local module '${moduleName}' into DISPATCH_HOME`,
+  };
+}
+
 function resolveFillJob(
   dep: MemoryDependency,
   registry: ModuleRegistry,
@@ -267,15 +275,25 @@ export function inspectJobDependencies(
   for (const dep of moduleDependencies(job)) {
     const moduleDef = preferredModuleForName(opts.registry, dep.name);
     if (!moduleDef) {
+      const localCandidate = findLocalModuleCandidate(dep.name, [process.cwd()]);
       issues.push({
         code: 'MISSING_MODULE_DEPENDENCY',
         dependencyType: 'module',
         moduleName: dep.name,
         requiredVersion: dep.version,
         message: dep.version
-          ? `Required module '${dep.name}' (${dep.version}) is not loaded`
-          : `Required module '${dep.name}' is not loaded`,
+          ? localCandidate
+            ? `Required module '${dep.name}' (${dep.version}) is not loaded. Found repo-local candidate at ${jobCommandPath(localCandidate.moduleDir)}; run 'dispatch module bootstrap' from that repo or validate from its workspace root.`
+            : `Required module '${dep.name}' (${dep.version}) is not loaded`
+          : localCandidate
+            ? `Required module '${dep.name}' is not loaded. Found repo-local candidate at ${jobCommandPath(localCandidate.moduleDir)}; run 'dispatch module bootstrap' from that repo or validate from its workspace root.`
+            : `Required module '${dep.name}' is not loaded`,
       });
+      if (localCandidate) next.push(nextActionForModuleBootstrap(dep.name));
+      else {
+        const installNext = nextActionForModuleInstall(dep);
+        if (installNext) next.push(installNext);
+      }
       continue;
     }
 

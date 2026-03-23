@@ -13,8 +13,10 @@ export function isNamespacedAction(action: string): boolean {
   return ACTION_KEY_RE.test(action);
 }
 
-export async function loadModuleRegistry(): Promise<{ registry: ModuleRegistry; warnings: string[] }> {
-  const { modules, warnings } = await loadModules();
+export async function loadModuleRegistry(opts?: {
+  searchFrom?: Array<string | null | undefined>;
+}): Promise<{ registry: ModuleRegistry; warnings: string[] }> {
+  const { modules, warnings } = await loadModules(opts);
   const registry = new ModuleRegistry();
   for (const mod of modules) registry.register(mod);
   const conflictWarnings = registry.listConflicts().map(conflictMessage);

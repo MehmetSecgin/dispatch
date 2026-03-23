@@ -233,6 +233,7 @@ dispatch job batch-inspect --batch-id <id|latest>
 ### Modules
 
 ```bash
+dispatch module bootstrap [--from <repo>]
 dispatch module list
 dispatch module inspect <name>
 dispatch module skill --path <dir>
@@ -356,6 +357,7 @@ Start here:
 Useful commands:
 
 ```bash
+dispatch module bootstrap
 dispatch module init --name payments --out ./modules/payments
 dispatch module inspect jsonplaceholder
 dispatch module skill --path modules/jsonplaceholder
@@ -367,6 +369,13 @@ dispatch skill update payments
 ```
 
 The repo ships [`modules/jsonplaceholder`](/Users/mehmetsecgin/dispatch/modules/jsonplaceholder) as a public reference module and example job set.
+
+On a fresh consumer-repo clone, run `dispatch module bootstrap` once from the
+workspace root if you want repo-local modules copied into `DISPATCH_HOME` for
+discovery and execution outside that checkout. `dispatch module list`,
+`dispatch job validate --case <path>`, and `dispatch module validate --path <dir>`
+also auto-discover workspace-local `modules/*/module.json` when you run them
+from, or point them at, that repo.
 
 ---
 

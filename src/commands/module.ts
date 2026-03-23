@@ -9,6 +9,7 @@ import { basicInstalledModuleValidation, installPreparedModuleDir } from '../mod
 import { ModuleManifest, ModuleManifestSchema } from '../modules/manifest.js';
 import { fetchModuleFromRegistry } from '../modules/remote.js';
 import { ModuleRegistry } from '../modules/registry.js';
+import { findWorkspaceRoot, listWorkspaceModuleCandidates } from '../modules/workspace.js';
 import { schemaToJsonSchema } from '../modules/schema-contracts.js';
 import { readJson, requireFile } from '../utils/fs-json.js';
 import type { GroupedTableGroup } from '../output/renderer.js';
@@ -115,6 +116,29 @@ function skillLockContainsName(lockPath: string, skillName: string): boolean {
   } catch {
     return false;
   }
+}
+
+function isRuntimeAssumptionHttpIssue(job: unknown, issue: { httpPath?: string; message: string }): boolean {
+  if (!issue.httpPath) return false;
+  const httpConfig = job && typeof job === 'object' ? (job as { http?: unknown }).http : null;
+  if (!httpConfig || typeof httpConfig !== 'object' || Array.isArray(httpConfig)) return false;
+
+  let current: unknown = httpConfig;
+  for (const segment of issue.httpPath.split('.')) {
+    if (!segment || !current || typeof current !== 'object' || Array.isArray(current)) return false;
+    current = (current as Record<string, unknown>)[segment];
+  }
+
+  return typeof current === 'string' && /\$\{(?:env|run)\./.test(current);
+}
+
+function copyDirIntoTemp(sourceDir: string): { cleanupDir: string; moduleDir: string } {
+  const tempParent = defaultUserModulesDir();
+  fs.mkdirSync(tempParent, { recursive: true });
+  const cleanupDir = fs.mkdtempSync(path.join(tempParent, '.dispatch-bootstrap-'));
+  const moduleDir = path.join(cleanupDir, 'module');
+  fs.cpSync(sourceDir, moduleDir, { recursive: true });
+  return { cleanupDir, moduleDir };
 }
 
 function normalizeModuleRelativePath(input: string): string {
@@ -457,6 +481,52 @@ export function registerModuleCommands(program: Command): void {
     });
 
   moduleCmd
+    .command('bootstrap')
+    .description('Install repo-local modules from a workspace into the user module directory')
+    .option('--from <dir>', 'Workspace root (defaults to nearest repo with modules/)')
+    .action(async (cmd) => {
+      const opts = program.opts();
+      const renderer = createRenderer({ json: !!opts.json, color: isColorEnabled(opts) });
+      const fromDir = typeof cmd.from === 'string' && String(cmd.from).trim() ? path.resolve(String(cmd.from)) : process.cwd();
+      const workspaceRoot = cmd.from ? fromDir : findWorkspaceRoot(fromDir);
+      if (!workspaceRoot) throw new Error(`No workspace with modules/ found from ${shortenHomePath(fromDir)}`);
+
+      const candidates = listWorkspaceModuleCandidates(workspaceRoot);
+      if (candidates.length === 0) throw new Error(`No local modules found under ${shortenHomePath(path.join(workspaceRoot, 'modules'))}`);
+
+      const installed = [];
+      for (const candidate of candidates) {
+        basicInstalledModuleValidation(candidate.moduleDir);
+        const prepared = copyDirIntoTemp(candidate.moduleDir);
+        try {
+          const { manifest, installDir } = installPreparedModuleDir(prepared.moduleDir);
+          installed.push({
+            name: manifest.name,
+            version: manifest.version,
+            sourceDir: candidate.moduleDir,
+            installDir,
+          });
+        } finally {
+          fs.rmSync(prepared.cleanupDir, { recursive: true, force: true });
+        }
+      }
+
+      renderer.render({
+        json: {
+          workspaceRoot,
+          installed,
+        },
+        human: [
+          `✓ Bootstrapped ${installed.length} local module${installed.length === 1 ? '' : 's'} from ${shortenHomePath(workspaceRoot)}`,
+          ...installed.map(
+            (entry) =>
+              `  - ${entry.name}@${entry.version}: ${shortenHomePath(entry.sourceDir)} -> ${shortenHomePath(entry.installDir)}`,
+          ),
+        ],
+      });
+    });
+
+  moduleCmd
     .command('validate')
     .description('Validate module manifest and handlers')
     .requiredOption('--path <moduleDir>')
@@ -484,7 +554,7 @@ export function registerModuleCommands(program: Command): void {
       const entryPath = path.resolve(moduleDir, parsed.data.entry || 'index.mjs');
       if (!fs.existsSync(entryPath)) throw new Error(`Missing entry file: ${entryPath}`);
       const moduleDef = await loadModuleFromDir(moduleDir, 'repo');
-      const loaded = await loadModules();
+      const loaded = await loadModules({ searchFrom: [moduleDir] });
       const registry = new ModuleRegistry();
       for (const mod of loaded.modules) {
         if (path.resolve(mod.sourcePath) === moduleDir) continue;
@@ -495,6 +565,7 @@ export function registerModuleCommands(program: Command): void {
         .filter(([, action]) => !action.description || !String(action.description).trim())
         .map(([name]) => name);
       const discoveredJobs = moduleDef.jobs ?? [];
+      const jobWarnings: Array<{ jobId: string; kind: 'seed' | 'case'; path: string; message: string }> = [];
       const jobIssues = discoveredJobs.flatMap((job) => {
         const parsedJob = JobCaseSchema.safeParse(readJson(job.path));
         if (!parsedJob.success) {
@@ -511,8 +582,27 @@ export function registerModuleCommands(program: Command): void {
         const httpConfigCheck = inspectEffectiveJobHttpConfig(parsedJob.data, defaultRuntime('module-validate'));
         const httpDependencyCheck = httpConfigCheck.valid
           ? inspectHttpDependencies(parsedJob.data, httpConfigCheck.effectiveHttp)
-          : { valid: false, issues: [] };
+          : { valid: false, issues: [] as Array<{ httpPath?: string; message: string }> };
         const credentialCheck = inspectJobCredentials(parsedJob.data, registry);
+        const runtimeWarnings = [
+          ...httpConfigCheck.issues
+            .filter((issue) => isRuntimeAssumptionHttpIssue(parsedJob.data, issue))
+            .map((issue) => ({
+              jobId: job.id,
+              kind: job.kind,
+              path: `${job.id}:http.${issue.httpPath || '<root>'}`,
+              message: `${issue.message} (runtime placeholder left unresolved during module validation)`,
+            })),
+          ...httpDependencyCheck.issues
+            .filter((issue) => isRuntimeAssumptionHttpIssue(parsedJob.data, issue))
+            .map((issue) => ({
+              jobId: job.id,
+              kind: job.kind,
+              path: `${job.id}:http.${issue.httpPath || '<root>'}`,
+              message: `${issue.message} (runtime placeholder left unresolved during module validation)`,
+            })),
+        ];
+        jobWarnings.push(...runtimeWarnings);
         return [
           ...validated.issues.map((issue) => ({
             jobId: job.id,
@@ -520,18 +610,22 @@ export function registerModuleCommands(program: Command): void {
             path: `${job.id}:${issue.path || '<root>'}`,
             message: issue.message,
           })),
-          ...httpConfigCheck.issues.map((issue) => ({
-            jobId: job.id,
-            kind: job.kind,
-            path: `${job.id}:http.${issue.httpPath || '<root>'}`,
-            message: issue.message,
-          })),
-          ...httpDependencyCheck.issues.map((issue) => ({
-            jobId: job.id,
-            kind: job.kind,
-            path: `${job.id}:http.${issue.httpPath || '<root>'}`,
-            message: issue.message,
-          })),
+          ...httpConfigCheck.issues
+            .filter((issue) => !isRuntimeAssumptionHttpIssue(parsedJob.data, issue))
+            .map((issue) => ({
+              jobId: job.id,
+              kind: job.kind,
+              path: `${job.id}:http.${issue.httpPath || '<root>'}`,
+              message: issue.message,
+            })),
+          ...httpDependencyCheck.issues
+            .filter((issue) => !isRuntimeAssumptionHttpIssue(parsedJob.data, issue))
+            .map((issue) => ({
+              jobId: job.id,
+              kind: job.kind,
+              path: `${job.id}:http.${issue.httpPath || '<root>'}`,
+              message: issue.message,
+            })),
           ...credentialCheck.issues.map((issue) => ({
             jobId: job.id,
             kind: job.kind,
@@ -549,6 +643,7 @@ export function registerModuleCommands(program: Command): void {
         emptyDescriptions,
         jobs: discoveredJobs,
         jobIssues,
+        jobWarnings,
         warnings: [] as string[],
       };
       const skillPath = path.join(moduleDir, 'SKILL.md');
@@ -566,12 +661,13 @@ export function registerModuleCommands(program: Command): void {
       renderer.render({
         json: out.valid ? out : jsonErrorEnvelope(cliErrorFromCode('USAGE_ERROR', 'module validation failed', out)),
         human: [
-          `✓ Module valid -> ${out.module}@${out.version}`,
+          `${out.valid ? '✓ Module valid' : '✗ Module validation failed'} -> ${out.module}@${out.version}`,
           ...(opts.verbose ? [`  Integrity: ${out.hash}`] : []),
           `  Actions: ${out.actionCount}`,
           ...(out.emptyDescriptions.length > 0 ? [`  Empty descriptions: ${out.emptyDescriptions.join(', ')}`] : []),
           ...(out.jobs.length > 0 ? [`  Jobs: ${out.jobs.map((job) => `[${job.kind}] ${job.id}`).join(', ')}`] : []),
           ...out.warnings.map((warning) => `${uiSymbol('warning', color)} ${warning}`),
+          ...out.jobWarnings.map((warning) => `${uiSymbol('warning', color)} ${warning.path}: ${warning.message}`),
           ...(out.jobIssues.length > 0
             ? out.jobIssues.map((issue) => `  Job issue: ${issue.path}: ${issue.message}`)
             : []),

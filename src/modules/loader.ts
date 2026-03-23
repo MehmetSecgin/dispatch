@@ -8,6 +8,7 @@ import { readJson } from '../utils/fs-json.js';
 import { ModuleManifest, ModuleManifestSchema } from './manifest.js';
 import { loadBuiltinModules } from './builtin/index.js';
 import { discoverModuleJobs } from './jobs.js';
+import { resolveWorkspaceRoots } from './workspace.js';
 import { DispatchModule, ModuleAction } from './types.js';
 import { ModuleDefinition, ModuleLoadResult, ModuleLayer } from './internal-types.js';
 
@@ -76,18 +77,20 @@ export async function loadModuleFromDir(dir: string, layer: ModuleLayer): Promis
   throw new Error(`Module '${manifest.name}' must default export a DispatchModule (defineModule(...))`);
 }
 
-export async function loadModules(): Promise<ModuleLoadResult> {
+export async function loadModules(opts?: { searchFrom?: Array<string | null | undefined> }): Promise<ModuleLoadResult> {
   const modules: ModuleDefinition[] = [];
   const warnings: string[] = [];
 
   modules.push(...loadBuiltinModules());
 
-  const repoModulesDir = path.join(ROOT_DIR, 'modules');
-  for (const dir of listModuleDirs(repoModulesDir)) {
-    try {
-      modules.push(await loadModuleFromDir(dir, 'repo'));
-    } catch (e) {
-      warnings.push(`Failed loading repo module '${dir}': ${e instanceof Error ? e.message : String(e)}`);
+  for (const workspaceRoot of resolveWorkspaceRoots([...(opts?.searchFrom ?? []), process.cwd(), ROOT_DIR])) {
+    const repoModulesDir = path.join(workspaceRoot, 'modules');
+    for (const dir of listModuleDirs(repoModulesDir)) {
+      try {
+        modules.push(await loadModuleFromDir(dir, 'repo'));
+      } catch (e) {
+        warnings.push(`Failed loading repo module '${dir}': ${e instanceof Error ? e.message : String(e)}`);
+      }
     }
   }
 

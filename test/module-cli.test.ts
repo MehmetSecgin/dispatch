@@ -66,6 +66,29 @@ function runCliHumanIn(cwd: string, args: string[], env?: NodeJS.ProcessEnv) {
   };
 }
 
+function runCliIn(cwd: string, args: string[], env?: NodeJS.ProcessEnv) {
+  const out = spawnSync(
+    process.execPath,
+    ['--import', TSX_LOADER, path.join(REPO_ROOT, 'src', 'cli.ts'), '--json', ...args],
+    {
+      cwd,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        ...env,
+      },
+    },
+  );
+
+  const stdout = out.stdout.trim();
+  return {
+    status: out.status,
+    stderr: out.stderr,
+    stdout,
+    json: stdout ? JSON.parse(stdout) : null,
+  };
+}
+
 async function runCliHumanAsync(args: string[], env?: NodeJS.ProcessEnv) {
   const child = spawn(process.execPath, ['--import', 'tsx', 'src/cli.ts', ...args], {
     cwd: REPO_ROOT,
@@ -207,6 +230,58 @@ describe('module CLI', () => {
         expect.objectContaining({
           name: expect.any(String),
           actions: expect.any(Array),
+        }),
+      ]),
+    );
+  });
+
+  it('discovers workspace-local modules from the current repo clone', () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-module-validate-test-'));
+    const moduleDir = path.join(workspaceDir, 'modules', 'workspace-fixture');
+    fs.mkdirSync(moduleDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(moduleDir, 'module.json'),
+      `${JSON.stringify(
+        {
+          name: 'workspace-fixture',
+          version: '1.0.0',
+          entry: 'index.mjs',
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(moduleDir, 'index.mjs'),
+      [
+        `import { defineAction, defineModule } from ${SDK_IMPORT};`,
+        `import { z } from ${ZOD_IMPORT};`,
+        '',
+        'export default defineModule({',
+        "  name: 'workspace-fixture',",
+        "  version: '1.0.0',",
+        '  actions: {',
+        '    ping: defineAction({',
+        "      description: 'Ping from workspace clone.',",
+        '      schema: z.object({}),',
+        "      handler: async () => ({ response: { ok: true }, detail: 'pong' }),",
+        '    }),',
+        '  },',
+        '});',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const result = runCliIn(workspaceDir, ['module', 'list']);
+
+    expect(result.status).toBe(0);
+    expect(result.json?.modules).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'workspace-fixture',
+          layer: 'repo',
         }),
       ]),
     );
@@ -435,7 +510,7 @@ describe('module CLI', () => {
     );
   });
 
-  it('fails module validate when a shipped job is missing required http config', () => {
+  it('warns instead of failing when a shipped job only needs runtime env for http config', () => {
     const moduleDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-module-validate-test-'));
     fs.mkdirSync(path.join(moduleDir, 'jobs'), { recursive: true });
     fs.writeFileSync(
@@ -483,13 +558,14 @@ describe('module CLI', () => {
           schemaVersion: 1,
           jobType: 'requires-http',
           http: {
+            baseUrl: '${env.DISPATCH_HTTP_BASE_URL}',
             defaultHeaders: {
-              'x-client': 'dispatch-test',
+              'x-client': '${env.DISPATCH_HTTP_X_CLIENT}',
             },
           },
           dependencies: {
             http: {
-              required: ['baseUrl', 'defaultHeaders.x-client', 'defaultHeaders.x-brand'],
+              required: ['baseUrl', 'defaultHeaders.x-client'],
             },
           },
           scenario: {
@@ -510,15 +586,157 @@ describe('module CLI', () => {
 
     const result = runCli(['module', 'validate', '--path', moduleDir]);
 
-    expect(result.status).toBe(2);
-    expect(result.json?.details?.jobIssues).toEqual(
+    expect(result.status).toBe(0);
+    expect(result.json?.jobWarnings).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           path: expect.stringContaining('requires-http:http.'),
-          message: expect.stringContaining('Missing required HTTP config'),
+          message: expect.stringContaining('runtime placeholder left unresolved'),
         }),
       ]),
     );
+  });
+
+  it('validates example jobs that depend on sibling workspace modules', () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-module-validate-test-'));
+    const authDir = path.join(workspaceDir, 'modules', 'auth-fixture');
+    const paymentsDir = path.join(workspaceDir, 'modules', 'payments-fixture');
+    fs.mkdirSync(path.join(paymentsDir, 'jobs'), { recursive: true });
+    fs.mkdirSync(authDir, { recursive: true });
+
+    fs.writeFileSync(
+      path.join(authDir, 'module.json'),
+      `${JSON.stringify({ name: 'auth-fixture', version: '1.0.0', entry: 'index.mjs' }, null, 2)}\n`,
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(authDir, 'index.mjs'),
+      [
+        `import { defineAction, defineModule } from ${SDK_IMPORT};`,
+        `import { z } from ${ZOD_IMPORT};`,
+        'export default defineModule({',
+        "  name: 'auth-fixture',",
+        "  version: '1.0.0',",
+        '  actions: {',
+        '    login: defineAction({',
+        "      description: 'Authenticate a fixture user.',",
+        '      schema: z.object({}),',
+        "      handler: async () => ({ response: { ok: true }, exports: { token: 'abc' } }),",
+        '    }),',
+        '  },',
+        '});',
+      ].join('\n'),
+      'utf8',
+    );
+
+    fs.writeFileSync(
+      path.join(paymentsDir, 'module.json'),
+      `${JSON.stringify({ name: 'payments-fixture', version: '1.0.0', entry: 'index.mjs' }, null, 2)}\n`,
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(paymentsDir, 'index.mjs'),
+      [
+        `import { defineAction, defineModule } from ${SDK_IMPORT};`,
+        `import { z } from ${ZOD_IMPORT};`,
+        'export default defineModule({',
+        "  name: 'payments-fixture',",
+        "  version: '1.0.0',",
+        '  actions: {',
+        '    charge: defineAction({',
+        "      description: 'Charge a fixture payment.',",
+        '      schema: z.object({ token: z.string().min(1) }),',
+        "      handler: async (_ctx, payload) => ({ response: { ok: true, token: payload.token } }),",
+        '    }),',
+        '  },',
+        '});',
+      ].join('\n'),
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(paymentsDir, 'jobs', 'checkout.job.case.json'),
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          jobType: 'checkout',
+          dependencies: {
+            modules: [{ name: 'auth-fixture', version: '^1.0.0' }],
+          },
+          scenario: {
+            steps: [
+              {
+                id: 'login',
+                action: 'auth-fixture.login',
+                payload: {},
+                capture: {
+                  authToken: 'exports.token',
+                },
+              },
+              {
+                id: 'charge',
+                action: 'payments-fixture.charge',
+                payload: {
+                  token: '${run.authToken}',
+                },
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+
+    const result = runCliIn(workspaceDir, ['module', 'validate', '--path', paymentsDir]);
+
+    expect(result.status).toBe(0);
+    expect(result.json?.valid).toBe(true);
+    expect(result.json?.jobIssues).toEqual([]);
+  });
+
+  it('bootstraps workspace-local modules into the dispatch home directory', () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-module-validate-test-'));
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-module-validate-test-'));
+    const moduleDir = path.join(workspaceDir, 'modules', 'bootstrap-fixture');
+    fs.mkdirSync(moduleDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(moduleDir, 'module.json'),
+      `${JSON.stringify({ name: 'bootstrap-fixture', version: '1.0.0', entry: 'index.mjs' }, null, 2)}\n`,
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(moduleDir, 'index.mjs'),
+      [
+        `import { defineAction, defineModule } from ${SDK_IMPORT};`,
+        `import { z } from ${ZOD_IMPORT};`,
+        'export default defineModule({',
+        "  name: 'bootstrap-fixture',",
+        "  version: '1.0.0',",
+        '  actions: {',
+        '    ping: defineAction({',
+        "      description: 'Ping from bootstrap fixture.',",
+        '      schema: z.object({}),',
+        "      handler: async () => ({ response: { ok: true } }),",
+        '    }),',
+        '  },',
+        '});',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const result = runCliIn(workspaceDir, ['module', 'bootstrap'], { HOME: homeDir });
+
+    expect(result.status).toBe(0);
+    expect(result.json?.installed).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'bootstrap-fixture',
+          version: '1.0.0',
+        }),
+      ]),
+    );
+    expect(fs.existsSync(path.join(homeDir, '.dispatch', 'modules', 'bootstrap-fixture@1.0.0', 'module.json'))).toBe(true);
   });
 
   it('warns when SKILL.md exists for a configured module but no installed skill is recorded', () => {

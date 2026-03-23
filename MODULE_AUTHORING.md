@@ -372,6 +372,9 @@ Validate a module from disk:
 dispatch module validate --path ./modules/payments
 ```
 
+By default, bundled example jobs are validated structurally and unresolved
+runtime placeholders such as `${env.*}` or `${run.*}` are reported as warnings.
+
 Validation checks:
 
 - `module.json` shape
