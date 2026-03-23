@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vitest';
 import { resolveMemoryPath } from '../src/modules/builtin/memory/store.ts';
+import { startRegistryFixture } from './helpers/registry-fixture.ts';
 
 const THIS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(THIS_DIR, '..');
@@ -18,6 +19,7 @@ function runCli(args: string[], env?: NodeJS.ProcessEnv) {
   const out = spawnSync(process.execPath, ['--import', 'tsx', 'src/cli.ts', '--json', ...args], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
+    timeout: 15000,
     env: {
       ...process.env,
       ...env,
@@ -37,6 +39,7 @@ function runCliHuman(args: string[], env?: NodeJS.ProcessEnv) {
   const out = spawnSync(process.execPath, ['--import', 'tsx', 'src/cli.ts', ...args], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
+    timeout: 15000,
     env: {
       ...process.env,
       ...env,
@@ -54,6 +57,7 @@ function runCliIn(cwd: string, args: string[], env?: NodeJS.ProcessEnv) {
   const out = spawnSync(process.execPath, ['--import', TSX_LOADER, path.join(REPO_ROOT, 'src', 'cli.ts'), '--json', ...args], {
     cwd,
     encoding: 'utf8',
+    timeout: 15000,
     env: {
       ...process.env,
       ...env,
@@ -67,6 +71,33 @@ function runCliIn(cwd: string, args: string[], env?: NodeJS.ProcessEnv) {
     stderr: out.stderr,
     json: stdout ? JSON.parse(stdout) : null,
   };
+}
+
+async function runCliHumanAsync(args: string[], env?: NodeJS.ProcessEnv) {
+  const child = spawn(process.execPath, ['--import', 'tsx', 'src/cli.ts', ...args], {
+    cwd: REPO_ROOT,
+    env: {
+      ...process.env,
+      ...env,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  let stdout = '';
+  let stderr = '';
+  child.stdout.on('data', (chunk) => {
+    stdout += chunk.toString();
+  });
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk.toString();
+  });
+
+  const status = await new Promise<number | null>((resolve, reject) => {
+    child.on('error', reject);
+    child.on('close', (code) => resolve(code));
+  });
+
+  return { status, stdout, stderr };
 }
 
 afterEach(() => {
@@ -136,6 +167,185 @@ describe('job CLI', () => {
 
     expect(result.status).toBe(0);
     expect(result.json).toEqual(expect.objectContaining({ valid: true }));
+  });
+
+  it('runs a job against bootstrapped home-installed modules outside the source workspace', () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-job-cli-test-'));
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-job-cli-test-'));
+    const externalDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-job-cli-test-'));
+    const moduleDir = path.join(workspaceDir, 'modules', 'boot-home-fixture');
+    fs.mkdirSync(moduleDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(moduleDir, 'module.json'),
+      `${JSON.stringify({ name: 'boot-home-fixture', version: '1.0.0', entry: 'index.mjs' }, null, 2)}\n`,
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(moduleDir, 'index.mjs'),
+      [
+        `import { z } from ${ZOD_IMPORT};`,
+        'export default {',
+        "  name: 'boot-home-fixture',",
+        "  version: '1.0.0',",
+        '  actions: {',
+        '    ping: {',
+        "      description: 'Ping from a bootstrapped home install.',",
+        '      schema: z.object({ message: z.string().min(1) }),',
+        "      handler: async (_ctx, payload) => ({ response: { ok: true, message: payload.message }, detail: payload.message }),",
+        '    },',
+        '  },',
+        '};',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const bootstrap = runCliIn(externalDir, ['module', 'bootstrap', '--from', workspaceDir], { HOME: homeDir });
+    expect(bootstrap.status).toBe(0);
+
+    const casePath = path.join(externalDir, 'external-home.job.case.json');
+    fs.writeFileSync(
+      casePath,
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          jobType: 'external-home',
+          dependencies: {
+            modules: [{ name: 'boot-home-fixture', version: '^1.0.0' }],
+          },
+          scenario: {
+            steps: [
+              {
+                id: 'ping',
+                action: 'boot-home-fixture.ping',
+                payload: {
+                  message: 'from-home',
+                },
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+
+    const result = runCliIn(externalDir, ['job', 'run', '--case', casePath], { HOME: homeDir });
+
+    expect(result.status).toBe(0);
+    expect(result.json).toEqual(expect.objectContaining({
+      status: 'SUCCESS',
+      runDir: expect.any(String),
+    }));
+  });
+
+  it('runs a job against a packed-and-installed artifact outside the source workspace', () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-job-cli-test-'));
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-job-cli-test-'));
+    const externalDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-job-cli-test-'));
+    const moduleDir = path.join(workspaceDir, 'bundle-fixture');
+    fs.mkdirSync(path.join(moduleDir, 'dist'), { recursive: true });
+    fs.writeFileSync(
+      path.join(moduleDir, 'module.json'),
+      `${JSON.stringify({ name: 'bundle-fixture', version: '1.0.0', entry: 'dist/index.mjs' }, null, 2)}\n`,
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(moduleDir, 'dist', 'index.mjs'),
+      [
+        `import { z } from ${ZOD_IMPORT};`,
+        'export default {',
+        "  name: 'bundle-fixture',",
+        "  version: '1.0.0',",
+        '  actions: {',
+        '    ping: {',
+        "      description: 'Run from packed artifact.',",
+        '      schema: z.object({}).strict(),',
+        "      handler: async () => ({ response: { ok: true }, detail: 'bundle-ok' }),",
+        '    },',
+        '  },',
+        '};',
+      ].join('\n'),
+      'utf8',
+    );
+    const bundlePath = path.join(workspaceDir, 'bundle-fixture.dpmod.zip');
+    const packResult = runCliIn(workspaceDir, ['module', 'pack', '--path', moduleDir, '--out', bundlePath], {
+      HOME: homeDir,
+    });
+    expect(packResult.status).toBe(0);
+
+    const installResult = runCliIn(externalDir, ['module', 'install', '--bundle', bundlePath], { HOME: homeDir });
+    expect(installResult.status).toBe(0);
+
+    const casePath = path.join(externalDir, 'bundle.job.case.json');
+    fs.writeFileSync(
+      casePath,
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          jobType: 'bundle-home',
+          dependencies: {
+            modules: [{ name: 'bundle-fixture', version: '^1.0.0' }],
+          },
+          scenario: {
+            steps: [{ id: 'ping', action: 'bundle-fixture.ping', payload: {} }],
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+
+    const result = runCliIn(externalDir, ['job', 'run', '--case', casePath], { HOME: homeDir });
+    expect(result.status).toBe(0);
+    expect(result.json).toEqual(expect.objectContaining({ status: 'SUCCESS' }));
+  });
+
+  it('runs a job against a registry-installed artifact outside the source workspace', async () => {
+    const externalDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-job-cli-test-'));
+    const fixture = await startRegistryFixture({
+      moduleName: `zz-registry-run-fixture-${process.pid}`,
+      version: '1.2.3',
+      authToken: 'token-123',
+    });
+
+    try {
+      const installResult = await runCliHumanAsync(['module', 'install', '--name', fixture.moduleName, '--version', fixture.version], {
+        HOME: fixture.homeDir,
+        DISPATCH_TEST_REGISTRY_TOKEN: 'token-123',
+      });
+      expect(installResult.status).toBe(0);
+
+      const casePath = path.join(externalDir, 'registry.job.case.json');
+      fs.writeFileSync(
+        casePath,
+        `${JSON.stringify(
+          {
+            schemaVersion: 1,
+            jobType: 'registry-home',
+            dependencies: {
+              modules: [{ name: fixture.moduleName, version: '^1.2.3' }],
+            },
+            scenario: {
+              steps: [{ id: 'ping', action: `${fixture.moduleName}.ping`, payload: {} }],
+            },
+          },
+          null,
+          2,
+        )}\n`,
+        'utf8',
+      );
+
+      const result = runCliIn(externalDir, ['job', 'run', '--case', casePath], {
+        HOME: fixture.homeDir,
+        DISPATCH_TEST_REGISTRY_TOKEN: 'token-123',
+      });
+      expect(result.status).toBe(0);
+      expect(result.json).toEqual(expect.objectContaining({ status: 'SUCCESS' }));
+    } finally {
+      await fixture.stop();
+    }
   });
 
   it('captures action exports into run scope for later steps', () => {

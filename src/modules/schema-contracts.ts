@@ -4,7 +4,11 @@ type JsonSchemaNode = Record<string, unknown>;
 
 export function schemaToJsonSchema(schema?: z.ZodSchema): JsonSchemaNode | null {
   if (!schema) return null;
-  return z.toJSONSchema(schema) as JsonSchemaNode;
+  try {
+    return z.toJSONSchema(schema) as JsonSchemaNode;
+  } catch {
+    return null;
+  }
 }
 
 export function summarizeSchemaProperties(schema?: z.ZodSchema): string | null {

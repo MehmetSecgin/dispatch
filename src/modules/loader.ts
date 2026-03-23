@@ -8,6 +8,7 @@ import { readJson } from '../utils/fs-json.js';
 import { ModuleManifest, ModuleManifestSchema } from './manifest.js';
 import { loadBuiltinModules } from './builtin/index.js';
 import { discoverModuleJobs } from './jobs.js';
+import { inspectInstalledArtifactDir } from './artifact.js';
 import { resolveWorkspaceRoots } from './workspace.js';
 import { DispatchModule, ModuleAction } from './types.js';
 import { ModuleDefinition, ModuleLoadResult, ModuleLayer } from './internal-types.js';
@@ -48,6 +49,13 @@ function listModuleDirs(baseDir: string): string[] {
 }
 
 export async function loadModuleFromDir(dir: string, layer: ModuleLayer): Promise<ModuleDefinition> {
+  if (layer === 'user') {
+    const checked = inspectInstalledArtifactDir(dir);
+    if (checked.status !== 'pass') {
+      const first = checked.errors[0];
+      throw new Error(first?.message ?? 'Installed module artifact validation failed');
+    }
+  }
   const rawManifest = readJson(path.join(dir, 'module.json'));
   const manifest: ModuleManifest = ModuleManifestSchema.parse(rawManifest);
   const entryPath = path.resolve(dir, manifest.entry ?? 'index.mjs');

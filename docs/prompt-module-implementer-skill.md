@@ -165,8 +165,9 @@ export default defineConfig({
 });
 ```
 
-`external: ['dispatchkit', 'zod']` is required — the runtime provides these at
-load time. Do not bundle them into the output.
+It is fine for the repo-local build to externalize `dispatchkit` and `zod`.
+Do not rely on the installed runtime to provide them directly; Dispatch
+normalizes installs into a portable bundled artifact.
 
 #### 5g. `tsconfig.json`
 

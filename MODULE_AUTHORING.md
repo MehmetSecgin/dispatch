@@ -153,9 +153,11 @@ export default defineConfig({
 });
 ```
 
-Keep `dispatchkit` and `zod` as dependencies of the module repo and externalize
-them in the module bundle. That keeps the generated runtime entry small and
-lets the module load the installed package surface directly.
+Keep `dispatchkit` and `zod` as dependencies of the module repo. It is fine to
+externalize them in the repo-local build output. When a module is packed,
+bootstrapped, or installed, Dispatch normalizes that authoring output into a
+strict installed artifact with a bundled `dist/index.mjs`, so installed modules
+do not rely on ambient package resolution from the host repo.
 
 Recommended `tsconfig.json`:
 
@@ -177,6 +179,28 @@ Recommended `tsconfig.json`:
 ```
 
 Set `module.json.entry` to `dist/index.mjs` when using this layout.
+
+## Installed Artifact Contract
+
+Anything installed under `DISPATCH_HOME/modules/...` must be a normalized
+artifact with this layout:
+
+```text
+<module>@<version>/
+  module.json
+  artifact.json
+  dist/
+    index.mjs
+  jobs/
+  assets/
+```
+
+Rules:
+
+- installed `module.json.entry` must be `dist/index.mjs`
+- `artifact.json` is required and versioned
+- installed output may only use Node builtins and relative imports within the artifact
+- old source-copy installs are unsupported; reinstall or re-bootstrap them
 
 ## Action Anatomy
 

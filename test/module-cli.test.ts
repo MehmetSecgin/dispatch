@@ -4,6 +4,7 @@ import os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vitest';
+import { inspectInstalledArtifactDir } from '../src/modules/artifact.ts';
 import { startRegistryFixture } from './helpers/registry-fixture.ts';
 
 const THIS_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -211,6 +212,8 @@ describe('module CLI', () => {
       expect(installResult.status).toBe(0);
       expect(installResult.stdout).toContain(`Installed ${fixture.moduleName}@${fixture.version}`);
       expect(fs.existsSync(path.join(installDir, 'module.json'))).toBe(true);
+      expect(fs.existsSync(path.join(installDir, 'artifact.json'))).toBe(true);
+      expect(fs.existsSync(path.join(installDir, 'dist', 'index.mjs'))).toBe(true);
       expect(inspectResult.status).toBe(0);
       expect(inspectResult.json?.name).toBe(fixture.moduleName);
       expect(inspectResult.json?.version).toBe(fixture.version);
@@ -500,13 +503,62 @@ describe('module CLI', () => {
     const result = runCli(['module', 'validate', '--path', moduleDir]);
 
     expect(result.status).toBe(2);
-    expect(result.json?.details?.jobIssues).toEqual(
+    expect(result.json?.details?.authoringValidity?.errors).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           path: expect.stringContaining('bad-memory'),
           message: expect.stringContaining('only allowed in seed jobs'),
         }),
       ]),
+    );
+  });
+
+  it('reports missing-entry in artifact readiness when the declared entry file is absent', () => {
+    const moduleDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-module-validate-test-'));
+    fs.writeFileSync(
+      path.join(moduleDir, 'module.json'),
+      `${JSON.stringify(
+        {
+          name: 'missing-entry-fixture',
+          version: '1.0.0',
+          entry: 'dist/index.mjs',
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+
+    const result = runCli(['module', 'validate', '--path', moduleDir]);
+
+    expect(result.status).toBe(2);
+    expect(result.json?.details?.artifactReadiness?.errors).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'missing-entry' })]),
+    );
+  });
+
+  it('reports bundle-failed in artifact readiness when the runtime entry cannot be bundled', () => {
+    const moduleDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-module-validate-test-'));
+    fs.writeFileSync(
+      path.join(moduleDir, 'module.json'),
+      `${JSON.stringify(
+        {
+          name: 'bundle-failed-fixture',
+          version: '1.0.0',
+          entry: 'index.mjs',
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+    fs.writeFileSync(path.join(moduleDir, 'index.mjs'), 'export default {\n', 'utf8');
+
+    const result = runCli(['module', 'validate', '--path', moduleDir]);
+
+    expect(result.status).toBe(2);
+    expect(result.json?.details?.artifactReadiness?.errors).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'bundle-failed' })]),
     );
   });
 
@@ -587,14 +639,12 @@ describe('module CLI', () => {
     const result = runCli(['module', 'validate', '--path', moduleDir]);
 
     expect(result.status).toBe(0);
-    expect(result.json?.jobWarnings).toEqual(
+    expect(result.json?.authoringValidity?.warnings).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          path: expect.stringContaining('requires-http:http.'),
-          message: expect.stringContaining('runtime placeholder left unresolved'),
-        }),
+        expect.stringContaining('requires-http:http.'),
       ]),
     );
+    expect(result.json?.artifactReadiness?.status).toBe('pass');
   });
 
   it('validates example jobs that depend on sibling workspace modules', () => {
@@ -691,8 +741,8 @@ describe('module CLI', () => {
     const result = runCliIn(workspaceDir, ['module', 'validate', '--path', paymentsDir]);
 
     expect(result.status).toBe(0);
-    expect(result.json?.valid).toBe(true);
-    expect(result.json?.jobIssues).toEqual([]);
+    expect(result.json?.authoringValidity?.status).toBe('pass');
+    expect(result.json?.artifactReadiness?.status).toBe('pass');
   });
 
   it('bootstraps workspace-local modules into the dispatch home directory', () => {
@@ -737,6 +787,128 @@ describe('module CLI', () => {
       ]),
     );
     expect(fs.existsSync(path.join(homeDir, '.dispatch', 'modules', 'bootstrap-fixture@1.0.0', 'module.json'))).toBe(true);
+    expect(fs.existsSync(path.join(homeDir, '.dispatch', 'modules', 'bootstrap-fixture@1.0.0', 'artifact.json'))).toBe(true);
+    expect(fs.existsSync(path.join(homeDir, '.dispatch', 'modules', 'bootstrap-fixture@1.0.0', 'dist', 'index.mjs'))).toBe(true);
+  });
+
+  it('warns about stale legacy home-installed modules instead of loading them', () => {
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-module-validate-test-'));
+    const installDir = path.join(homeDir, '.dispatch', 'modules', 'stale-fixture@1.0.0');
+    fs.mkdirSync(installDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(installDir, 'module.json'),
+      `${JSON.stringify({ name: 'stale-fixture', version: '1.0.0', entry: 'index.mjs' }, null, 2)}\n`,
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(installDir, 'index.mjs'),
+      [
+        "import { defineAction, defineModule } from 'dispatchkit';",
+        "import { z } from 'zod';",
+        'export default defineModule({',
+        "  name: 'stale-fixture',",
+        "  version: '1.0.0',",
+        '  actions: {',
+        '    ping: defineAction({',
+        "      description: 'Recovered stale home install.',",
+        '      schema: z.object({}),',
+        "      handler: async () => ({ response: { ok: true }, detail: 'pong' }),",
+        '    }),',
+        '  },',
+        '});',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const result = runCli(['module', 'list'], { HOME: homeDir });
+
+    expect(result.status).toBe(0);
+    expect(result.json?.modules).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'stale-fixture',
+        }),
+      ]),
+    );
+    expect(result.json?.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('old non-portable format'),
+      ]),
+    );
+  });
+
+  it('detects unresolved runtime imports in installed artifacts', () => {
+    const installDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-module-validate-test-'));
+    fs.mkdirSync(path.join(installDir, 'dist'), { recursive: true });
+    fs.writeFileSync(
+      path.join(installDir, 'module.json'),
+      `${JSON.stringify({ name: 'unresolved-import-fixture', version: '1.0.0', entry: 'dist/index.mjs' }, null, 2)}\n`,
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(installDir, 'artifact.json'),
+      `${JSON.stringify(
+        {
+          artifactSchemaVersion: 1,
+          moduleName: 'unresolved-import-fixture',
+          moduleVersion: '1.0.0',
+          sourceEntry: 'index.mjs',
+          bundledEntry: 'dist/index.mjs',
+          cliVersion: 'test',
+          normalizedAt: '2026-03-23T00:00:00.000Z',
+          sourceHash: 'fixture',
+          bundler: 'test',
+          bundlerVersion: '1.0.0',
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+    fs.writeFileSync(path.join(installDir, 'dist', 'index.mjs'), "import 'leftpad';\nexport default { name: 'x', version: '1.0.0', actions: {} };\n", 'utf8');
+
+    const inspected = inspectInstalledArtifactDir(installDir);
+
+    expect(inspected.status).toBe('fail');
+    expect(inspected.errors).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'unresolved-runtime-import' })]),
+    );
+  });
+
+  it('detects invalid installed artifact layout when dist/index.mjs is missing', () => {
+    const installDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-module-validate-test-'));
+    fs.writeFileSync(
+      path.join(installDir, 'module.json'),
+      `${JSON.stringify({ name: 'invalid-layout-fixture', version: '1.0.0', entry: 'dist/index.mjs' }, null, 2)}\n`,
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(installDir, 'artifact.json'),
+      `${JSON.stringify(
+        {
+          artifactSchemaVersion: 1,
+          moduleName: 'invalid-layout-fixture',
+          moduleVersion: '1.0.0',
+          sourceEntry: 'index.mjs',
+          bundledEntry: 'dist/index.mjs',
+          cliVersion: 'test',
+          normalizedAt: '2026-03-23T00:00:00.000Z',
+          sourceHash: 'fixture',
+          bundler: 'test',
+          bundlerVersion: '1.0.0',
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+
+    const inspected = inspectInstalledArtifactDir(installDir);
+
+    expect(inspected.status).toBe('fail');
+    expect(inspected.errors).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'invalid-artifact-layout' })]),
+    );
   });
 
   it('warns when SKILL.md exists for a configured module but no installed skill is recorded', () => {
@@ -854,16 +1026,17 @@ describe('module CLI', () => {
     expect(result.status).toBe(0);
     expect(files).toEqual(
       expect.arrayContaining([
+        'artifact.json',
         'module.json',
         'dist/index.mjs',
         'jobs/example.job.case.json',
-        'README.md',
-        'runtime-extra/cert.pem',
+        'assets/runtime-extra/cert.pem',
       ]),
     );
     expect(files).not.toContain('src/index.ts');
     expect(files).not.toContain('tsconfig.json');
     expect(files).not.toContain('tsup.config.ts');
+    expect(files).not.toContain('README.md');
   });
 
   it('installs atomically, replaces stale targets cleanly, and removes stale temp dirs', () => {
@@ -920,6 +1093,7 @@ describe('module CLI', () => {
 
     expect(result.status).toBe(0);
     expect(fs.existsSync(path.join(installDir, 'module.json'))).toBe(true);
+    expect(fs.existsSync(path.join(installDir, 'artifact.json'))).toBe(true);
     expect(fs.existsSync(path.join(installDir, 'dist', 'index.mjs'))).toBe(true);
     expect(fs.existsSync(path.join(installDir, 'jobs', 'example.job.case.json'))).toBe(true);
     expect(fs.existsSync(path.join(installDir, 'obsolete.txt'))).toBe(false);

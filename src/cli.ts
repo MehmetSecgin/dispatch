@@ -50,7 +50,7 @@ async function main(): Promise<void> {
   });
 
   registerJobCommands(program, { cliVersion: CLI_VERSION });
-  registerModuleCommands(program);
+  registerModuleCommands(program, { cliVersion: CLI_VERSION });
   registerSkillCommands(program);
   registerDoctorCommand(program, { cliVersion: CLI_VERSION });
 

@@ -6,6 +6,11 @@ import { loadConfig } from '../config/loader.js';
 import { loadModuleRegistry, moduleInfo, hashDirectory } from '../modules/index.js';
 import { loadModuleFromDir, loadModules } from '../modules/loader.js';
 import { basicInstalledModuleValidation, installPreparedModuleDir } from '../modules/install.js';
+import {
+  ArtifactPreparationError,
+  INSTALLED_ARTIFACT_MANIFEST,
+  normalizeModuleToArtifact,
+} from '../modules/artifact.js';
 import { ModuleManifest, ModuleManifestSchema } from '../modules/manifest.js';
 import { fetchModuleFromRegistry } from '../modules/remote.js';
 import { ModuleRegistry } from '../modules/registry.js';
@@ -132,13 +137,22 @@ function isRuntimeAssumptionHttpIssue(job: unknown, issue: { httpPath?: string; 
   return typeof current === 'string' && /\$\{(?:env|run)\./.test(current);
 }
 
-function copyDirIntoTemp(sourceDir: string): { cleanupDir: string; moduleDir: string } {
-  const tempParent = defaultUserModulesDir();
-  fs.mkdirSync(tempParent, { recursive: true });
-  const cleanupDir = fs.mkdtempSync(path.join(tempParent, '.dispatch-bootstrap-'));
-  const moduleDir = path.join(cleanupDir, 'module');
-  fs.cpSync(sourceDir, moduleDir, { recursive: true });
-  return { cleanupDir, moduleDir };
+function createArtifactTempDir(prefix: string): string {
+  return fs.mkdtempSync(path.join(path.resolve(process.cwd()), `${prefix}-`));
+}
+
+function artifactIssueFromError(error: unknown): { code: string; message: string; path?: string } {
+  if (error instanceof ArtifactPreparationError) {
+    return {
+      code: error.code,
+      message: error.message,
+      path: error.detailPath,
+    };
+  }
+  return {
+    code: 'bundle-failed',
+    message: error instanceof Error ? error.message : String(error),
+  };
 }
 
 function normalizeModuleRelativePath(input: string): string {
@@ -360,7 +374,7 @@ function createTypeScriptModuleScaffold(
   };
 }
 
-export function registerModuleCommands(program: Command): void {
+export function registerModuleCommands(program: Command, deps: { cliVersion: string }): void {
   const moduleCmd = program.command('module').description('Module operations');
 
   moduleCmd
@@ -496,18 +510,23 @@ export function registerModuleCommands(program: Command): void {
 
       const installed = [];
       for (const candidate of candidates) {
-        basicInstalledModuleValidation(candidate.moduleDir);
-        const prepared = copyDirIntoTemp(candidate.moduleDir);
+        const artifactDir = createArtifactTempDir('.dispatch-bootstrap-artifact');
         try {
-          const { manifest, installDir } = installPreparedModuleDir(prepared.moduleDir);
+          await normalizeModuleToArtifact(candidate.moduleDir, artifactDir, { cliVersion: deps.cliVersion });
+          const { manifest, installDir } = installPreparedModuleDir(artifactDir);
           installed.push({
             name: manifest.name,
             version: manifest.version,
             sourceDir: candidate.moduleDir,
             installDir,
           });
+        } catch (error) {
+          const issue = artifactIssueFromError(error);
+          throw new Error(
+            `Failed bootstrapping ${candidate.name}: ${issue.message}${issue.path ? ` (${issue.path})` : ''}`,
+          );
         } finally {
-          fs.rmSync(prepared.cleanupDir, { recursive: true, force: true });
+          fs.rmSync(artifactDir, { recursive: true, force: true });
         }
       }
 
@@ -541,35 +560,56 @@ export function registerModuleCommands(program: Command): void {
       const parsed = ModuleManifestSchema.safeParse(raw);
       if (!parsed.success) {
         const out = {
-          valid: false,
-          issues: parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
+          module: path.basename(moduleDir),
+          authoringValidity: {
+            status: 'fail' as const,
+            errors: parsed.error.issues.map((i) => ({ code: 'invalid-artifact-layout', path: i.path.join('.'), message: i.message })),
+            warnings: [] as string[],
+          },
+          artifactReadiness: {
+            status: 'fail' as const,
+            errors: [{ code: 'invalid-artifact-layout', path: 'module.json', message: 'Authoring validity failed before artifact normalization could run' }],
+            warnings: [] as string[],
+          },
         };
         renderer.render({
           json: jsonErrorEnvelope(cliErrorFromCode('USAGE_ERROR', 'module validation failed', out)),
-          human: ['✗ Module validation failed', ...out.issues.map((i) => `  - ${i.path || '<root>'}: ${i.message}`)],
+          human: [
+            '✗ Module validation failed',
+            'Authoring Validity:',
+            ...out.authoringValidity.errors.map((i) => `  - ${i.path || '<root>'}: ${i.message}`),
+            'Artifact Readiness:',
+            ...out.artifactReadiness.errors.map((i) => `  - ${i.path || '<root>'}: ${i.message}`),
+          ],
         });
         process.exitCode = exitCodeForCliError(cliErrorFromCode('USAGE_ERROR', 'module validation failed'));
         return;
       }
-      const entryPath = path.resolve(moduleDir, parsed.data.entry || 'index.mjs');
-      if (!fs.existsSync(entryPath)) throw new Error(`Missing entry file: ${entryPath}`);
-      const moduleDef = await loadModuleFromDir(moduleDir, 'repo');
-      const loaded = await loadModules({ searchFrom: [moduleDir] });
-      const registry = new ModuleRegistry();
-      for (const mod of loaded.modules) {
-        if (path.resolve(mod.sourcePath) === moduleDir) continue;
-        registry.register(mod);
-      }
-      registry.register(moduleDef);
-      const emptyDescriptions = Object.entries(moduleDef.actions)
-        .filter(([, action]) => !action.description || !String(action.description).trim())
-        .map(([name]) => name);
-      const discoveredJobs = moduleDef.jobs ?? [];
+      let moduleDef: Awaited<ReturnType<typeof loadModuleFromDir>> | null = null;
+      let emptyDescriptions: string[] = [];
+      let discoveredJobs: Array<{ kind: 'seed' | 'case'; id: string; path: string }> = [];
       const jobWarnings: Array<{ jobId: string; kind: 'seed' | 'case'; path: string; message: string }> = [];
-      const jobIssues = discoveredJobs.flatMap((job) => {
+      const authoringErrors: Array<{ code: string; path?: string; message: string }> = [];
+
+      try {
+        moduleDef = await loadModuleFromDir(moduleDir, 'repo');
+        const loaded = await loadModules({ searchFrom: [moduleDir] });
+        const registry = new ModuleRegistry();
+        for (const mod of loaded.modules) {
+          if (path.resolve(mod.sourcePath) === moduleDir) continue;
+          registry.register(mod);
+        }
+        registry.register(moduleDef);
+        emptyDescriptions = Object.entries(moduleDef.actions)
+          .filter(([, action]) => !action.description || !String(action.description).trim())
+          .map(([name]) => name);
+        discoveredJobs = moduleDef.jobs ?? [];
+        authoringErrors.push(
+          ...discoveredJobs.flatMap((job) => {
         const parsedJob = JobCaseSchema.safeParse(readJson(job.path));
         if (!parsedJob.success) {
           return parsedJob.error.issues.map((issue) => ({
+            code: 'invalid-artifact-layout',
             jobId: job.id,
             kind: job.kind,
             path: `${job.id}:${issue.path.join('.') || '<root>'}`,
@@ -605,6 +645,7 @@ export function registerModuleCommands(program: Command): void {
         jobWarnings.push(...runtimeWarnings);
         return [
           ...validated.issues.map((issue) => ({
+            code: issue.code,
             jobId: job.id,
             kind: job.kind,
             path: `${job.id}:${issue.path || '<root>'}`,
@@ -613,6 +654,7 @@ export function registerModuleCommands(program: Command): void {
           ...httpConfigCheck.issues
             .filter((issue) => !isRuntimeAssumptionHttpIssue(parsedJob.data, issue))
             .map((issue) => ({
+              code: issue.httpPath ? 'invalid-artifact-layout' : 'invalid-artifact-layout',
               jobId: job.id,
               kind: job.kind,
               path: `${job.id}:http.${issue.httpPath || '<root>'}`,
@@ -621,29 +663,68 @@ export function registerModuleCommands(program: Command): void {
           ...httpDependencyCheck.issues
             .filter((issue) => !isRuntimeAssumptionHttpIssue(parsedJob.data, issue))
             .map((issue) => ({
+              code: 'invalid-artifact-layout',
               jobId: job.id,
               kind: job.kind,
               path: `${job.id}:http.${issue.httpPath || '<root>'}`,
               message: issue.message,
             })),
           ...credentialCheck.issues.map((issue) => ({
+            code: issue.code,
             jobId: job.id,
             kind: job.kind,
             path: `${job.id}:${issue.path || '<root>'}`,
             message: issue.message,
           })),
         ];
-      });
+          }),
+        );
+      } catch (error) {
+        authoringErrors.push({
+          code: 'invalid-artifact-layout',
+          path: parsed.data.entry || 'index.mjs',
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+      const artifactWarnings: string[] = [];
+      const artifactErrors: Array<{ code: string; path?: string; message: string }> = [];
+      const artifactDir = createArtifactTempDir('.dispatch-validate-artifact');
+      try {
+        await normalizeModuleToArtifact(moduleDir, artifactDir, { cliVersion: deps.cliVersion });
+      } catch (error) {
+        artifactErrors.push(artifactIssueFromError(error));
+      } finally {
+        fs.rmSync(artifactDir, { recursive: true, force: true });
+      }
+
       const out = {
-        valid: Object.keys(moduleDef.actions).length > 0 && emptyDescriptions.length === 0 && jobIssues.length === 0,
         module: parsed.data.name,
         version: parsed.data.version,
         hash: hashDirectory(moduleDir),
-        actionCount: Object.keys(moduleDef.actions).length,
-        emptyDescriptions,
-        jobs: discoveredJobs,
-        jobIssues,
-        jobWarnings,
+        authoringValidity: {
+          status:
+            moduleDef !== null && Object.keys(moduleDef.actions).length > 0 && emptyDescriptions.length === 0 && authoringErrors.length === 0
+              ? ('pass' as const)
+              : ('fail' as const),
+          errors: [
+            ...emptyDescriptions.map((name) => ({
+              code: 'invalid-artifact-layout',
+              path: `actions.${name}.description`,
+              message: `Action '${name}' is missing a description`,
+            })),
+            ...authoringErrors.map((issue) => ({
+              code: issue.code,
+              path: issue.path,
+              message: issue.message,
+            })),
+          ],
+          warnings: jobWarnings.map((warning) => `${warning.path}: ${warning.message}`),
+        },
+        artifactReadiness: {
+          status: artifactErrors.length === 0 ? ('pass' as const) : ('fail' as const),
+          errors: artifactErrors,
+          warnings: artifactWarnings,
+        },
         warnings: [] as string[],
       };
       const skillPath = path.join(moduleDir, 'SKILL.md');
@@ -659,21 +740,27 @@ export function registerModuleCommands(program: Command): void {
         }
       }
       renderer.render({
-        json: out.valid ? out : jsonErrorEnvelope(cliErrorFromCode('USAGE_ERROR', 'module validation failed', out)),
+        json:
+          out.authoringValidity.status === 'pass' && out.artifactReadiness.status === 'pass'
+            ? out
+            : jsonErrorEnvelope(cliErrorFromCode('USAGE_ERROR', 'module validation failed', out)),
         human: [
-          `${out.valid ? '✓ Module valid' : '✗ Module validation failed'} -> ${out.module}@${out.version}`,
+          `${out.authoringValidity.status === 'pass' && out.artifactReadiness.status === 'pass' ? '✓ Module valid' : '✗ Module validation failed'} -> ${out.module}@${out.version}`,
           ...(opts.verbose ? [`  Integrity: ${out.hash}`] : []),
-          `  Actions: ${out.actionCount}`,
-          ...(out.emptyDescriptions.length > 0 ? [`  Empty descriptions: ${out.emptyDescriptions.join(', ')}`] : []),
-          ...(out.jobs.length > 0 ? [`  Jobs: ${out.jobs.map((job) => `[${job.kind}] ${job.id}`).join(', ')}`] : []),
           ...out.warnings.map((warning) => `${uiSymbol('warning', color)} ${warning}`),
-          ...out.jobWarnings.map((warning) => `${uiSymbol('warning', color)} ${warning.path}: ${warning.message}`),
-          ...(out.jobIssues.length > 0
-            ? out.jobIssues.map((issue) => `  Job issue: ${issue.path}: ${issue.message}`)
-            : []),
+          'Authoring Validity:',
+          ...(out.authoringValidity.errors.length > 0
+            ? out.authoringValidity.errors.map((issue) => `  - [${issue.code}] ${issue.path || '<root>'}: ${issue.message}`)
+            : ['  - pass']),
+          ...out.authoringValidity.warnings.map((warning) => `${uiSymbol('warning', color)} ${warning}`),
+          'Artifact Readiness:',
+          ...(out.artifactReadiness.errors.length > 0
+            ? out.artifactReadiness.errors.map((issue) => `  - [${issue.code}] ${issue.path || '<root>'}: ${issue.message}`)
+            : ['  - pass']),
+          ...out.artifactReadiness.warnings.map((warning) => `${uiSymbol('warning', color)} ${warning}`),
         ],
       });
-      if (!out.valid)
+      if (out.authoringValidity.status !== 'pass' || out.artifactReadiness.status !== 'pass')
         process.exitCode = exitCodeForCliError(cliErrorFromCode('USAGE_ERROR', 'module validation failed'));
     });
 
@@ -742,17 +829,15 @@ export function registerModuleCommands(program: Command): void {
     .requiredOption('--path <moduleDir>')
     .requiredOption('--out <bundle.dpmod.zip>')
     .action(async (cmd) => {
-      const renderer = createRenderer({});
+      const opts = program.opts();
+      const renderer = createRenderer({ json: !!opts.json, color: isColorEnabled(opts) });
       const moduleDir = path.resolve(cmd.path);
       const outPath = path.resolve(cmd.out);
-      const manifestPath = path.join(moduleDir, 'module.json');
-      if (!fs.existsSync(manifestPath)) throw new Error(`Missing module.json at ${manifestPath}`);
-      const manifest = ModuleManifestSchema.parse(readJson(manifestPath));
       fs.mkdirSync(path.dirname(outPath), { recursive: true });
       const stagingDir = fs.mkdtempSync(path.join(path.dirname(outPath), '.dispatch-pack-'));
       const zip = findZipBinary();
       try {
-        stageModuleBundle(moduleDir, stagingDir, manifest);
+        await normalizeModuleToArtifact(moduleDir, stagingDir, { cliVersion: deps.cliVersion });
         fs.rmSync(outPath, { force: true });
         if (zip === 'zip') {
           const r = spawnSync('zip', ['-rq', outPath, '.'], { cwd: stagingDir, encoding: 'utf8' });
@@ -763,7 +848,10 @@ export function registerModuleCommands(program: Command): void {
       } finally {
         fs.rmSync(stagingDir, { recursive: true, force: true });
       }
-      renderer.line(`✓ Packed ${shortenHomePath(outPath)}`);
+      renderer.render({
+        json: { bundlePath: outPath },
+        human: `✓ Packed ${shortenHomePath(outPath)}`,
+      });
     });
 
   moduleCmd

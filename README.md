@@ -371,8 +371,10 @@ dispatch skill update payments
 The repo ships [`modules/jsonplaceholder`](/Users/mehmetsecgin/dispatch/modules/jsonplaceholder) as a public reference module and example job set.
 
 On a fresh consumer-repo clone, run `dispatch module bootstrap` once from the
-workspace root if you want repo-local modules copied into `DISPATCH_HOME` for
-discovery and execution outside that checkout. `dispatch module list`,
+workspace root if you want repo-local modules normalized into installed runtime
+artifacts in `DISPATCH_HOME` for discovery and execution outside that checkout.
+`dispatch module pack` and registry installs use the same installed artifact
+contract. `dispatch module list`,
 `dispatch job validate --case <path>`, and `dispatch module validate --path <dir>`
 also auto-discover workspace-local `modules/*/module.json` when you run them
 from, or point them at, that repo.

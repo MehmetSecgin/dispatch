@@ -1,28 +1,20 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { ModuleManifest, ModuleManifestSchema } from './manifest.js';
-import { readJson } from '../utils/fs-json.js';
+import { ModuleManifest } from './manifest.js';
 import { defaultUserModulesDir } from '../data/run-data.js';
-
-function ensureModuleSubpath(moduleDir: string, relPath: string): string {
-  const normalized = String(relPath || '').replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/^\/+/, '');
-  const fullPath = path.resolve(moduleDir, normalized);
-  const relative = path.relative(moduleDir, fullPath);
-  if (relative.startsWith('..') || path.isAbsolute(relative)) {
-    throw new Error(`Module entry must stay inside the module directory: ${relPath}`);
-  }
-  return fullPath;
-}
+import { inspectInstalledArtifactDir } from './artifact.js';
 
 export function basicInstalledModuleValidation(moduleDir: string): ModuleManifest {
-  const manifestPath = path.join(moduleDir, 'module.json');
-  if (!fs.existsSync(manifestPath)) throw new Error('Bundle missing module.json at root');
-  const manifest = ModuleManifestSchema.parse(readJson(manifestPath));
-  const entryPath = ensureModuleSubpath(moduleDir, manifest.entry || 'index.mjs');
-  if (!fs.existsSync(entryPath) || !fs.statSync(entryPath).isFile()) {
-    throw new Error(`Bundle entry file missing: ${manifest.entry || 'index.mjs'}`);
+  const inspected = inspectInstalledArtifactDir(moduleDir);
+  if (inspected.status !== 'pass' || !inspected.manifest) {
+    const first = inspected.errors[0];
+    throw new Error(first?.message ?? 'Installed artifact validation failed');
   }
-  return manifest;
+  return {
+    name: inspected.manifest.moduleName,
+    version: inspected.manifest.moduleVersion,
+    entry: inspected.manifest.bundledEntry,
+  };
 }
 
 export function cleanupStaleInstallDirs(targetRoot: string): void {
