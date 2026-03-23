@@ -44,6 +44,14 @@ export interface ModuleDefinition {
   layer: ModuleLayer;
   /** Absolute source directory path, or a builtin pseudo-path. */
   sourcePath: string;
+  /**
+   * Canonical hash of the source tree that produced this module.
+   *
+   * For repo-local modules this is the current module directory hash. For
+   * installed user modules this is the artifact manifest's `sourceHash`,
+   * allowing repo/user mirror detection across different on-disk layouts.
+   */
+  sourceHash?: string;
   /** Merged metadata from the runtime module and `module.json`. */
   metadata?: Record<string, unknown>;
   /** Action definitions keyed by action suffix. */

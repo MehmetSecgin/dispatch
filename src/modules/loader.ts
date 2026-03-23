@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import { ROOT_DIR } from '../data/paths.js';
@@ -48,13 +49,70 @@ function listModuleDirs(baseDir: string): string[] {
     .filter((p) => fs.existsSync(path.join(p, 'module.json')) && fs.statSync(p).isDirectory());
 }
 
+function hashDirectory(dir: string): string {
+  const hash = createHash('sha256');
+  const files = walkFiles(dir).sort((a, b) => a.localeCompare(b));
+  for (const file of files) {
+    const rel = path.relative(dir, file);
+    hash.update(rel);
+    hash.update('\0');
+    hash.update(fs.readFileSync(file));
+    hash.update('\0');
+  }
+  return hash.digest('hex');
+}
+
+function walkFiles(dir: string): string[] {
+  const out: string[] = [];
+  if (!fs.existsSync(dir)) return out;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...walkFiles(full));
+    else if (entry.isFile()) out.push(full);
+  }
+  return out;
+}
+
+function actionNames(mod: ModuleDefinition): string[] {
+  return Object.keys(mod.actions).sort((a, b) => a.localeCompare(b));
+}
+
+function sameActionSurface(left: ModuleDefinition, right: ModuleDefinition): boolean {
+  const leftNames = actionNames(left);
+  const rightNames = actionNames(right);
+  return leftNames.length === rightNames.length && leftNames.every((name, idx) => name === rightNames[idx]);
+}
+
+function isHarmlessRepoUserMirror(left: ModuleDefinition, right: ModuleDefinition): boolean {
+  const layers = new Set([left.layer, right.layer]);
+  if (!layers.has('repo') || !layers.has('user') || layers.size !== 2) return false;
+  if (left.name !== right.name || left.version !== right.version) return false;
+  if (!left.sourceHash || !right.sourceHash || left.sourceHash !== right.sourceHash) return false;
+  return sameActionSurface(left, right);
+}
+
+function normalizeHarmlessMirrors(modules: ModuleDefinition[]): ModuleDefinition[] {
+  const normalized: ModuleDefinition[] = [];
+  for (const mod of modules) {
+    const mirrorIdx = normalized.findIndex((candidate) => isHarmlessRepoUserMirror(candidate, mod));
+    if (mirrorIdx >= 0) {
+      normalized[mirrorIdx] = mod;
+      continue;
+    }
+    normalized.push(mod);
+  }
+  return normalized;
+}
+
 export async function loadModuleFromDir(dir: string, layer: ModuleLayer): Promise<ModuleDefinition> {
+  let sourceHash: string | undefined;
   if (layer === 'user') {
     const checked = inspectInstalledArtifactDir(dir);
     if (checked.status !== 'pass') {
       const first = checked.errors[0];
       throw new Error(first?.message ?? 'Installed module artifact validation failed');
     }
+    sourceHash = checked.manifest?.sourceHash;
   }
   const rawManifest = readJson(path.join(dir, 'module.json'));
   const manifest: ModuleManifest = ModuleManifestSchema.parse(rawManifest);
@@ -74,6 +132,7 @@ export async function loadModuleFromDir(dir: string, layer: ModuleLayer): Promis
       ...mod.default,
       layer,
       sourcePath: dir,
+      sourceHash: sourceHash ?? (layer === 'repo' ? hashDirectory(dir) : undefined),
       metadata: {
         ...(mod.default.metadata ?? {}),
         ...(manifest.metadata ?? {}),
@@ -111,5 +170,5 @@ export async function loadModules(opts?: { searchFrom?: Array<string | null | un
     }
   }
 
-  return { modules, warnings };
+  return { modules: normalizeHarmlessMirrors(modules), warnings };
 }
