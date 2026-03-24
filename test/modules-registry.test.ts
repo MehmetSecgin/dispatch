@@ -81,7 +81,21 @@ describe('module registry', () => {
   });
 
   it('keeps the runtime root entry limited to the authoring API', () => {
-    expect(Object.keys(dispatchkit).sort()).toEqual(['defineAction', 'defineModule']);
+    expect(Object.keys(dispatchkit).sort()).toEqual([
+      'NonEmptyStringSchema',
+      'PositiveIntegerArraySchema',
+      'PositiveIntegerLikeSchema',
+      'PositiveIntegerSchema',
+      'UuidSchema',
+      'appendActivity',
+      'defineAction',
+      'defineModule',
+      'normalizePositiveInteger',
+      'normalizePositiveIntegerList',
+      'requireCredential',
+      'resolveAliasValue',
+      'resolveLookupValue',
+    ]);
   });
 
   it('resolves actions from map-based custom modules', () => {
