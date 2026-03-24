@@ -5,10 +5,9 @@ import { Command } from 'commander';
 import { loadConfig } from '../config/loader.js';
 import { loadModuleRegistry, moduleInfo, hashDirectory } from '../modules/index.js';
 import { loadModuleFromDir, loadModules } from '../modules/loader.js';
-import { basicInstalledModuleValidation, installPreparedModuleDir } from '../modules/install.js';
+import { installPreparedModuleDir } from '../modules/install.js';
 import {
   ArtifactPreparationError,
-  INSTALLED_ARTIFACT_MANIFEST,
   normalizeModuleToArtifact,
 } from '../modules/artifact.js';
 import { ModuleManifest, ModuleManifestSchema } from '../modules/manifest.js';
@@ -501,12 +500,14 @@ export function registerModuleCommands(program: Command, deps: { cliVersion: str
     .action(async (cmd) => {
       const opts = program.opts();
       const renderer = createRenderer({ json: !!opts.json, color: isColorEnabled(opts) });
-      const fromDir = typeof cmd.from === 'string' && String(cmd.from).trim() ? path.resolve(String(cmd.from)) : process.cwd();
+      const fromDir =
+        typeof cmd.from === 'string' && String(cmd.from).trim() ? path.resolve(String(cmd.from)) : process.cwd();
       const workspaceRoot = cmd.from ? fromDir : findWorkspaceRoot(fromDir);
       if (!workspaceRoot) throw new Error(`No workspace with modules/ found from ${shortenHomePath(fromDir)}`);
 
       const candidates = listWorkspaceModuleCandidates(workspaceRoot);
-      if (candidates.length === 0) throw new Error(`No local modules found under ${shortenHomePath(path.join(workspaceRoot, 'modules'))}`);
+      if (candidates.length === 0)
+        throw new Error(`No local modules found under ${shortenHomePath(path.join(workspaceRoot, 'modules'))}`);
 
       const installed = [];
       for (const candidate of candidates) {
@@ -563,12 +564,22 @@ export function registerModuleCommands(program: Command, deps: { cliVersion: str
           module: path.basename(moduleDir),
           authoringValidity: {
             status: 'fail' as const,
-            errors: parsed.error.issues.map((i) => ({ code: 'invalid-artifact-layout', path: i.path.join('.'), message: i.message })),
+            errors: parsed.error.issues.map((i) => ({
+              code: 'invalid-artifact-layout',
+              path: i.path.join('.'),
+              message: i.message,
+            })),
             warnings: [] as string[],
           },
           artifactReadiness: {
             status: 'fail' as const,
-            errors: [{ code: 'invalid-artifact-layout', path: 'module.json', message: 'Authoring validity failed before artifact normalization could run' }],
+            errors: [
+              {
+                code: 'invalid-artifact-layout',
+                path: 'module.json',
+                message: 'Authoring validity failed before artifact normalization could run',
+              },
+            ],
             warnings: [] as string[],
           },
         };
@@ -606,77 +617,77 @@ export function registerModuleCommands(program: Command, deps: { cliVersion: str
         discoveredJobs = moduleDef.jobs ?? [];
         authoringErrors.push(
           ...discoveredJobs.flatMap((job) => {
-        const parsedJob = JobCaseSchema.safeParse(readJson(job.path));
-        if (!parsedJob.success) {
-          return parsedJob.error.issues.map((issue) => ({
-            code: 'invalid-artifact-layout',
-            jobId: job.id,
-            kind: job.kind,
-            path: `${job.id}:${issue.path.join('.') || '<root>'}`,
-            message: issue.message,
-          }));
-        }
-        const validated = validateJobCase(parsedJob.data, registry, loadActionDefaults(), {
-          jobKind: inferJobFileKind(job.path),
-        });
-        const httpConfigCheck = inspectEffectiveJobHttpConfig(parsedJob.data, defaultRuntime('module-validate'));
-        const httpDependencyCheck = httpConfigCheck.valid
-          ? inspectHttpDependencies(parsedJob.data, httpConfigCheck.effectiveHttp)
-          : { valid: false, issues: [] as Array<{ httpPath?: string; message: string }> };
-        const credentialCheck = inspectJobCredentials(parsedJob.data, registry);
-        const runtimeWarnings = [
-          ...httpConfigCheck.issues
-            .filter((issue) => isRuntimeAssumptionHttpIssue(parsedJob.data, issue))
-            .map((issue) => ({
-              jobId: job.id,
-              kind: job.kind,
-              path: `${job.id}:http.${issue.httpPath || '<root>'}`,
-              message: `${issue.message} (runtime placeholder left unresolved during module validation)`,
-            })),
-          ...httpDependencyCheck.issues
-            .filter((issue) => isRuntimeAssumptionHttpIssue(parsedJob.data, issue))
-            .map((issue) => ({
-              jobId: job.id,
-              kind: job.kind,
-              path: `${job.id}:http.${issue.httpPath || '<root>'}`,
-              message: `${issue.message} (runtime placeholder left unresolved during module validation)`,
-            })),
-        ];
-        jobWarnings.push(...runtimeWarnings);
-        return [
-          ...validated.issues.map((issue) => ({
-            code: issue.code,
-            jobId: job.id,
-            kind: job.kind,
-            path: `${job.id}:${issue.path || '<root>'}`,
-            message: issue.message,
-          })),
-          ...httpConfigCheck.issues
-            .filter((issue) => !isRuntimeAssumptionHttpIssue(parsedJob.data, issue))
-            .map((issue) => ({
-              code: issue.httpPath ? 'invalid-artifact-layout' : 'invalid-artifact-layout',
-              jobId: job.id,
-              kind: job.kind,
-              path: `${job.id}:http.${issue.httpPath || '<root>'}`,
-              message: issue.message,
-            })),
-          ...httpDependencyCheck.issues
-            .filter((issue) => !isRuntimeAssumptionHttpIssue(parsedJob.data, issue))
-            .map((issue) => ({
-              code: 'invalid-artifact-layout',
-              jobId: job.id,
-              kind: job.kind,
-              path: `${job.id}:http.${issue.httpPath || '<root>'}`,
-              message: issue.message,
-            })),
-          ...credentialCheck.issues.map((issue) => ({
-            code: issue.code,
-            jobId: job.id,
-            kind: job.kind,
-            path: `${job.id}:${issue.path || '<root>'}`,
-            message: issue.message,
-          })),
-        ];
+            const parsedJob = JobCaseSchema.safeParse(readJson(job.path));
+            if (!parsedJob.success) {
+              return parsedJob.error.issues.map((issue) => ({
+                code: 'invalid-artifact-layout',
+                jobId: job.id,
+                kind: job.kind,
+                path: `${job.id}:${issue.path.join('.') || '<root>'}`,
+                message: issue.message,
+              }));
+            }
+            const validated = validateJobCase(parsedJob.data, registry, loadActionDefaults(), {
+              jobKind: inferJobFileKind(job.path),
+            });
+            const httpConfigCheck = inspectEffectiveJobHttpConfig(parsedJob.data, defaultRuntime('module-validate'));
+            const httpDependencyCheck = httpConfigCheck.valid
+              ? inspectHttpDependencies(parsedJob.data, httpConfigCheck.effectiveHttp)
+              : { valid: false, issues: [] as Array<{ httpPath?: string; message: string }> };
+            const credentialCheck = inspectJobCredentials(parsedJob.data, registry);
+            const runtimeWarnings = [
+              ...httpConfigCheck.issues
+                .filter((issue) => isRuntimeAssumptionHttpIssue(parsedJob.data, issue))
+                .map((issue) => ({
+                  jobId: job.id,
+                  kind: job.kind,
+                  path: `${job.id}:http.${issue.httpPath || '<root>'}`,
+                  message: `${issue.message} (runtime placeholder left unresolved during module validation)`,
+                })),
+              ...httpDependencyCheck.issues
+                .filter((issue) => isRuntimeAssumptionHttpIssue(parsedJob.data, issue))
+                .map((issue) => ({
+                  jobId: job.id,
+                  kind: job.kind,
+                  path: `${job.id}:http.${issue.httpPath || '<root>'}`,
+                  message: `${issue.message} (runtime placeholder left unresolved during module validation)`,
+                })),
+            ];
+            jobWarnings.push(...runtimeWarnings);
+            return [
+              ...validated.issues.map((issue) => ({
+                code: issue.code,
+                jobId: job.id,
+                kind: job.kind,
+                path: `${job.id}:${issue.path || '<root>'}`,
+                message: issue.message,
+              })),
+              ...httpConfigCheck.issues
+                .filter((issue) => !isRuntimeAssumptionHttpIssue(parsedJob.data, issue))
+                .map((issue) => ({
+                  code: issue.httpPath ? 'invalid-artifact-layout' : 'invalid-artifact-layout',
+                  jobId: job.id,
+                  kind: job.kind,
+                  path: `${job.id}:http.${issue.httpPath || '<root>'}`,
+                  message: issue.message,
+                })),
+              ...httpDependencyCheck.issues
+                .filter((issue) => !isRuntimeAssumptionHttpIssue(parsedJob.data, issue))
+                .map((issue) => ({
+                  code: 'invalid-artifact-layout',
+                  jobId: job.id,
+                  kind: job.kind,
+                  path: `${job.id}:http.${issue.httpPath || '<root>'}`,
+                  message: issue.message,
+                })),
+              ...credentialCheck.issues.map((issue) => ({
+                code: issue.code,
+                jobId: job.id,
+                kind: job.kind,
+                path: `${job.id}:${issue.path || '<root>'}`,
+                message: issue.message,
+              })),
+            ];
           }),
         );
       } catch (error) {
@@ -703,7 +714,10 @@ export function registerModuleCommands(program: Command, deps: { cliVersion: str
         hash: hashDirectory(moduleDir),
         authoringValidity: {
           status:
-            moduleDef !== null && Object.keys(moduleDef.actions).length > 0 && emptyDescriptions.length === 0 && authoringErrors.length === 0
+            moduleDef !== null &&
+            Object.keys(moduleDef.actions).length > 0 &&
+            emptyDescriptions.length === 0 &&
+            authoringErrors.length === 0
               ? ('pass' as const)
               : ('fail' as const),
           errors: [
@@ -750,12 +764,16 @@ export function registerModuleCommands(program: Command, deps: { cliVersion: str
           ...out.warnings.map((warning) => `${uiSymbol('warning', color)} ${warning}`),
           'Authoring Validity:',
           ...(out.authoringValidity.errors.length > 0
-            ? out.authoringValidity.errors.map((issue) => `  - [${issue.code}] ${issue.path || '<root>'}: ${issue.message}`)
+            ? out.authoringValidity.errors.map(
+                (issue) => `  - [${issue.code}] ${issue.path || '<root>'}: ${issue.message}`,
+              )
             : ['  - pass']),
           ...out.authoringValidity.warnings.map((warning) => `${uiSymbol('warning', color)} ${warning}`),
           'Artifact Readiness:',
           ...(out.artifactReadiness.errors.length > 0
-            ? out.artifactReadiness.errors.map((issue) => `  - [${issue.code}] ${issue.path || '<root>'}: ${issue.message}`)
+            ? out.artifactReadiness.errors.map(
+                (issue) => `  - [${issue.code}] ${issue.path || '<root>'}: ${issue.message}`,
+              )
             : ['  - pass']),
           ...out.artifactReadiness.warnings.map((warning) => `${uiSymbol('warning', color)} ${warning}`),
         ],

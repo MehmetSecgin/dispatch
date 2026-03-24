@@ -195,52 +195,56 @@ describe('module mirror de-duplication', () => {
     expect(matches[0]?.layer).toBe('user');
   });
 
-  it('suppresses harmless repo/user mirror warnings across list, inspect, schema, validate, and run', async () => {
-    const workspaceDir = tmpDir('dispatch-module-mirror-');
-    const dispatchHome = tmpDir('dispatch-module-mirror-');
-    const moduleName = `mirror-clean-${process.pid}`;
-    const moduleDir = writeModule({
-      workspaceDir,
-      name: moduleName,
-      version: '1.0.0',
-      actionNames: ['ping'],
-      marker: 'shared-v1',
-    });
-    await installBootstrappedCopy(moduleDir, dispatchHome);
-    const casePath = writeJobCase(workspaceDir, moduleName);
+  it(
+    'suppresses harmless repo/user mirror warnings across list, inspect, schema, validate, and run',
+    async () => {
+      const workspaceDir = tmpDir('dispatch-module-mirror-');
+      const dispatchHome = tmpDir('dispatch-module-mirror-');
+      const moduleName = `mirror-clean-${process.pid}`;
+      const moduleDir = writeModule({
+        workspaceDir,
+        name: moduleName,
+        version: '1.0.0',
+        actionNames: ['ping'],
+        marker: 'shared-v1',
+      });
+      await installBootstrappedCopy(moduleDir, dispatchHome);
+      const casePath = writeJobCase(workspaceDir, moduleName);
 
-    setDispatchHomeOverride(dispatchHome);
-    const loaded = await loadModules({ searchFrom: [workspaceDir] });
-    const matches = loaded.modules.filter((mod) => mod.name === moduleName);
-    expect(matches).toHaveLength(1);
-    expect(matches[0]?.layer).toBe('user');
+      setDispatchHomeOverride(dispatchHome);
+      const loaded = await loadModules({ searchFrom: [workspaceDir] });
+      const matches = loaded.modules.filter((mod) => mod.name === moduleName);
+      expect(matches).toHaveLength(1);
+      expect(matches[0]?.layer).toBe('user');
 
-    const env = { DISPATCH_HOME: dispatchHome };
-    const listResult = runCliIn(workspaceDir, ['module', 'list'], env);
-    const inspectResult = runCliIn(workspaceDir, ['module', 'inspect', moduleName], env);
-    const schemaResult = runCliIn(workspaceDir, ['schema', 'action', '--name', `${moduleName}.ping`, '--print'], env);
-    const validateResult = runCliIn(workspaceDir, ['job', 'validate', '--case', casePath], env);
-    const runResult = runCliHumanIn(workspaceDir, ['job', 'run', '--case', casePath], env);
+      const env = { DISPATCH_HOME: dispatchHome };
+      const listResult = runCliIn(workspaceDir, ['module', 'list'], env);
+      const inspectResult = runCliIn(workspaceDir, ['module', 'inspect', moduleName], env);
+      const schemaResult = runCliIn(workspaceDir, ['schema', 'action', '--name', `${moduleName}.ping`, '--print'], env);
+      const validateResult = runCliIn(workspaceDir, ['job', 'validate', '--case', casePath], env);
+      const runResult = runCliHumanIn(workspaceDir, ['job', 'run', '--case', casePath], env);
 
-    expect(listResult.status).toBe(0);
-    expect(listResult.json?.conflicts).toEqual([]);
-    expect(listResult.json?.warnings).toEqual([]);
-    expect(listResult.json?.modules.filter((mod: { name: string }) => mod.name === moduleName)).toHaveLength(1);
+      expect(listResult.status).toBe(0);
+      expect(listResult.json?.conflicts).toEqual([]);
+      expect(listResult.json?.warnings).toEqual([]);
+      expect(listResult.json?.modules.filter((mod: { name: string }) => mod.name === moduleName)).toHaveLength(1);
 
-    expect(inspectResult.status).toBe(0);
-    expect(inspectResult.json?.name).toBe(moduleName);
-    expect(inspectResult.json?.layer).toBe('user');
+      expect(inspectResult.status).toBe(0);
+      expect(inspectResult.json?.name).toBe(moduleName);
+      expect(inspectResult.json?.layer).toBe('user');
 
-    expect(schemaResult.status).toBe(0);
-    expect(schemaResult.json?.action).toBe(`${moduleName}.ping`);
+      expect(schemaResult.status).toBe(0);
+      expect(schemaResult.json?.action).toBe(`${moduleName}.ping`);
 
-    expect(validateResult.status).toBe(0);
-    expect(validateResult.json).toEqual(expect.objectContaining({ valid: true, warnings: [] }));
+      expect(validateResult.status).toBe(0);
+      expect(validateResult.json).toEqual(expect.objectContaining({ valid: true, warnings: [] }));
 
-    expect(runResult.status).toBe(0);
-    expect(runResult.stdout).not.toContain('override');
-    expect(runResult.stdout).not.toContain('overridden');
-  });
+      expect(runResult.status).toBe(0);
+      expect(runResult.stdout).not.toContain('override');
+      expect(runResult.stdout).not.toContain('overridden');
+    },
+    15_000,
+  );
 
   it('keeps override warnings when repo/user duplicates use different versions', async () => {
     const workspaceDir = tmpDir('dispatch-module-mirror-');

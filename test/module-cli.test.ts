@@ -791,6 +791,82 @@ describe('module CLI', () => {
     expect(fs.existsSync(path.join(homeDir, '.dispatch', 'modules', 'bootstrap-fixture@1.0.0', 'dist', 'index.mjs'))).toBe(true);
   });
 
+  it('bootstraps modules that self-import dispatchkit before dist exists', () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-module-validate-test-'));
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-module-validate-test-'));
+    const moduleDir = path.join(workspaceDir, 'modules', 'bootstrap-self-import-fixture');
+    fs.mkdirSync(path.join(workspaceDir, 'src'), { recursive: true });
+    fs.mkdirSync(moduleDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(workspaceDir, 'package.json'),
+      `${JSON.stringify(
+        {
+          name: 'dispatchkit',
+          type: 'module',
+          exports: {
+            '.': {
+              import: './dist/index.js',
+            },
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(workspaceDir, 'src', 'index.ts'),
+      [
+        'export function defineAction(definition: Record<string, unknown>) {',
+        '  return definition;',
+        '}',
+        '',
+        'export function defineModule(definition: Record<string, unknown>) {',
+        '  return definition;',
+        '}',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(moduleDir, 'module.json'),
+      `${JSON.stringify({ name: 'bootstrap-self-import-fixture', version: '1.0.0', entry: 'index.mjs' }, null, 2)}\n`,
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(moduleDir, 'index.mjs'),
+      [
+        "import { defineAction, defineModule } from 'dispatchkit';",
+        '',
+        'export default defineModule({',
+        "  name: 'bootstrap-self-import-fixture',",
+        "  version: '1.0.0',",
+        '  actions: {',
+        '    ping: defineAction({',
+        "      description: 'Ping from self-import fixture.',",
+        '      schema: {},',
+        "      handler: async () => ({ response: { ok: true }, detail: 'pong' }),",
+        '    }),',
+        '  },',
+        '});',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const result = runCliIn(workspaceDir, ['module', 'bootstrap'], { HOME: homeDir });
+
+    expect(result.status).toBe(0);
+    expect(result.json?.installed).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'bootstrap-self-import-fixture',
+          version: '1.0.0',
+        }),
+      ]),
+    );
+  });
+
   it('warns about stale legacy home-installed modules instead of loading them', () => {
     const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-module-validate-test-'));
     const installDir = path.join(homeDir, '.dispatch', 'modules', 'stale-fixture@1.0.0');

@@ -93,6 +93,10 @@ function normalizeRelPath(input: string): string {
   return input.replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/^\/+/, '');
 }
 
+function escapeRegExp(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function ensureModuleSubpath(moduleDir: string, relPath: string): string {
   const normalized = normalizeRelPath(relPath);
   const fullPath = path.resolve(moduleDir, normalized);
@@ -166,6 +170,82 @@ function assertPortableInstalledOutput(entryPath: string): void {
   );
 }
 
+function findNearestPackageRoot(startDir: string): string | null {
+  let current = path.resolve(startDir);
+  while (true) {
+    if (fs.existsSync(path.join(current, 'package.json'))) return current;
+    const parent = path.dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+}
+
+function readPackageJson(pkgPath: string): Record<string, unknown> | null {
+  try {
+    const pkg = readJson(pkgPath);
+    return pkg && typeof pkg === 'object' && !Array.isArray(pkg) ? (pkg as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function firstExistingFile(rootDir: string, candidates: string[]): string | null {
+  for (const candidate of candidates) {
+    const fullPath = path.join(rootDir, candidate);
+    if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) return fullPath;
+  }
+  return null;
+}
+
+function collectSelfPackageSourceCandidates(pkg: Record<string, unknown>): string[] {
+  const candidates: string[] = [];
+  const pushCandidate = (value: unknown) => {
+    if (typeof value !== 'string') return;
+    const trimmed = normalizeRelPath(value.trim());
+    if (!trimmed) return;
+    candidates.push(trimmed);
+  };
+
+  pushCandidate(pkg.source);
+  const exportsField = pkg.exports;
+  if (exportsField && typeof exportsField === 'object' && !Array.isArray(exportsField)) {
+    pushCandidate((exportsField as Record<string, unknown>)['source']);
+    const rootExport = (exportsField as Record<string, unknown>)['.'];
+    if (rootExport && typeof rootExport === 'object' && !Array.isArray(rootExport)) {
+      pushCandidate((rootExport as Record<string, unknown>).source);
+    }
+  }
+
+  candidates.push(
+    'src/index.ts',
+    'src/index.mts',
+    'src/index.js',
+    'src/index.mjs',
+    'index.ts',
+    'index.mts',
+    'index.js',
+    'index.mjs',
+  );
+
+  return Array.from(new Set(candidates));
+}
+
+function findSelfPackageSource(moduleDir: string): { packageName: string; sourceEntryPath: string } | null {
+  const packageRoot = findNearestPackageRoot(moduleDir);
+  if (!packageRoot) return null;
+
+  const pkg = readPackageJson(path.join(packageRoot, 'package.json'));
+  if (!pkg || typeof pkg.name !== 'string' || !pkg.name.trim()) return null;
+
+  const sourceEntryPath = firstExistingFile(packageRoot, collectSelfPackageSourceCandidates(pkg));
+  if (!sourceEntryPath) return null;
+
+  return {
+    packageName: pkg.name.trim(),
+    sourceEntryPath,
+  };
+}
+
 export async function normalizeModuleToArtifact(
   moduleDir: string,
   artifactDir: string,
@@ -181,6 +261,7 @@ export async function normalizeModuleToArtifact(
 
   fs.rmSync(artifactDir, { recursive: true, force: true });
   ensureDir(path.join(artifactDir, 'dist'));
+  const selfPackageSource = findSelfPackageSource(moduleDir);
 
   try {
     await build({
@@ -201,6 +282,21 @@ export async function normalizeModuleToArtifact(
             }));
           },
         },
+        ...(selfPackageSource
+          ? [
+              {
+                name: 'dispatch-self-package-source',
+                setup(buildCtx: import('esbuild').PluginBuild) {
+                  buildCtx.onResolve(
+                    { filter: new RegExp(`^${escapeRegExp(selfPackageSource.packageName)}$`) },
+                    () => ({
+                      path: selfPackageSource.sourceEntryPath,
+                    }),
+                  );
+                },
+              },
+            ]
+          : []),
       ],
     });
   } catch (error) {
