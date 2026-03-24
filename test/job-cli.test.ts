@@ -14,8 +14,6 @@ const SDK_IMPORT = JSON.stringify(pathToFileURL(path.join(REPO_ROOT, 'src', 'ind
 const ZOD_IMPORT = JSON.stringify(pathToFileURL(path.join(REPO_ROOT, 'node_modules', 'zod', 'index.js')).href);
 const HTTP_FIXTURE_MODULE_NAME = `zz-job-http-fixture-${process.pid}`;
 const HTTP_FIXTURE_MODULE_DIR = path.join(REPO_ROOT, 'modules', HTTP_FIXTURE_MODULE_NAME);
-const BOOTSTRAP_PACKAGE_MODULE_NAME = `zz-bootstrap-package-fixture-${process.pid}`;
-const BOOTSTRAP_PACKAGE_MODULE_DIR = path.join(REPO_ROOT, 'modules', BOOTSTRAP_PACKAGE_MODULE_NAME);
 
 function runCli(args: string[], env?: NodeJS.ProcessEnv) {
   const out = spawnSync(process.execPath, ['--import', 'tsx', 'src/cli.ts', '--json', ...args], {
@@ -109,7 +107,6 @@ afterEach(() => {
     }
   }
   fs.rmSync(HTTP_FIXTURE_MODULE_DIR, { recursive: true, force: true });
-  fs.rmSync(BOOTSTRAP_PACKAGE_MODULE_DIR, { recursive: true, force: true });
 });
 
 describe('job CLI', () => {
@@ -173,25 +170,40 @@ describe('job CLI', () => {
   });
 
   it('runs a job against bootstrapped home-installed modules outside the source workspace', () => {
+    const bootstrapWorkspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-job-cli-test-'));
     const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-job-cli-test-'));
     const externalDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-job-cli-test-'));
-    fs.mkdirSync(BOOTSTRAP_PACKAGE_MODULE_DIR, { recursive: true });
+    const moduleName = `zz-bootstrap-package-fixture-${process.pid}`;
+    const bootstrapSourceDir = path.join(bootstrapWorkspaceDir, 'src');
+    const bootstrapModuleDir = path.join(bootstrapWorkspaceDir, 'modules', moduleName);
+    fs.mkdirSync(bootstrapSourceDir, { recursive: true });
+    fs.mkdirSync(bootstrapModuleDir, { recursive: true });
     fs.writeFileSync(
-      path.join(BOOTSTRAP_PACKAGE_MODULE_DIR, 'module.json'),
-      `${JSON.stringify({ name: BOOTSTRAP_PACKAGE_MODULE_NAME, version: '1.0.0', entry: 'index.mjs' }, null, 2)}\n`,
+      path.join(bootstrapWorkspaceDir, 'package.json'),
+      `${JSON.stringify({ name: 'dispatchkit', type: 'module' }, null, 2)}\n`,
       'utf8',
     );
     fs.writeFileSync(
-      path.join(BOOTSTRAP_PACKAGE_MODULE_DIR, 'index.mjs'),
+      path.join(bootstrapSourceDir, 'index.ts'),
+      [`export * from ${SDK_IMPORT};`, ''].join('\n'),
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(bootstrapModuleDir, 'module.json'),
+      `${JSON.stringify({ name: moduleName, version: '1.0.0', entry: 'index.mjs' }, null, 2)}\n`,
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(bootstrapModuleDir, 'index.mjs'),
       [
         "import { defineAction, defineModule } from 'dispatchkit';",
-        "import { z } from 'zod';",
+        `import { z } from ${ZOD_IMPORT};`,
         'export default defineModule({',
-        `  name: '${BOOTSTRAP_PACKAGE_MODULE_NAME}',`,
+        `  name: '${moduleName}',`,
         "  version: '1.0.0',",
         '  actions: {',
         '    ping: defineAction({',
-        "      description: 'Ping from a bootstrapped home install.',",
+          "      description: 'Ping from a bootstrapped home install.',",
         '      schema: z.object({ message: z.string().min(1) }),',
         "      handler: async (_ctx, payload) => ({ response: { ok: true, message: payload.message }, detail: payload.message }),",
         '    }),',
@@ -201,7 +213,7 @@ describe('job CLI', () => {
       'utf8',
     );
 
-    const bootstrap = runCli(['module', 'bootstrap', '--from', REPO_ROOT], { HOME: homeDir });
+    const bootstrap = runCli(['module', 'bootstrap', '--from', bootstrapWorkspaceDir], { HOME: homeDir });
     expect(bootstrap.status).toBe(0);
 
     const casePath = path.join(externalDir, 'external-home.job.case.json');
@@ -212,13 +224,13 @@ describe('job CLI', () => {
           schemaVersion: 1,
           jobType: 'external-home',
           dependencies: {
-            modules: [{ name: BOOTSTRAP_PACKAGE_MODULE_NAME, version: '^1.0.0' }],
+            modules: [{ name: moduleName, version: '^1.0.0' }],
           },
           scenario: {
             steps: [
               {
                 id: 'ping',
-                action: `${BOOTSTRAP_PACKAGE_MODULE_NAME}.ping`,
+                action: `${moduleName}.ping`,
                 payload: {
                   message: 'from-home',
                 },
