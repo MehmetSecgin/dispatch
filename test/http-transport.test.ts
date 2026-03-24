@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { HttpTransport } from '../src/transport/http.ts';
+import { HttpTransportImpl as HttpTransport } from '../src/transport/http.ts';
 
 // Stub artifacts — just enough for HttpTransport to call
 function stubArtifacts() {

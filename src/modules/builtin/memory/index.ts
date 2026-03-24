@@ -1,9 +1,11 @@
 import { defineAction, defineModule } from '../../types.js';
 import { ModuleDefinition } from '../../internal-types.js';
-import { ForgetSchema, RecallSchema, StoreSchema } from './schemas.js';
+import { ForgetSchema, ListSchema, RecallSchema, StoreSchema } from './schemas.js';
 import {
   clearMemoryNamespace,
   forgetMemoryValue,
+  listMemoryNamespaces,
+  readMemoryNamespace,
   recallMemoryValue,
   storeMemoryValue,
 } from './store.js';
@@ -42,6 +44,33 @@ export function createMemoryModule(sourcePath: string): ModuleDefinition {
               value: recalled.found ? recalled.value : payload.defaultValue,
             },
             detail: recalled.found ? `recalled ${payload.namespace}.${payload.key}` : `missing ${payload.namespace}.${payload.key}`,
+          };
+        },
+      }),
+      list: defineAction({
+        description: 'List all memory namespaces, or inspect all keys and values in one namespace.',
+        schema: ListSchema,
+        handler: async (ctx, payload) => {
+          if (payload.namespace === undefined) {
+            const namespaces = listMemoryNamespaces(ctx.runtime.configDir);
+            return {
+              response: {
+                namespaces: namespaces.map((n) => n.namespace),
+                count: namespaces.length,
+              },
+              detail: `listed ${namespaces.length} namespace(s)`,
+            };
+          }
+          const contents = readMemoryNamespace(ctx.runtime.configDir, payload.namespace);
+          const keys = Object.keys(contents);
+          return {
+            response: {
+              namespace: payload.namespace,
+              keys,
+              count: keys.length,
+              contents,
+            },
+            detail: `inspected namespace=${payload.namespace} keys=${keys.length}`,
           };
         },
       }),

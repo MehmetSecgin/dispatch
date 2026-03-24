@@ -5,7 +5,7 @@ import { RunArtifacts } from '../artifacts/run-artifacts.js';
 import { isJsonObject, type JsonObject } from '../core/json.js';
 import { loadModuleRegistry } from '../modules/index.js';
 import { buildResolutionRow } from '../modules/conflicts.js';
-import { HttpTransport } from '../transport/http.js';
+import { HttpTransportImpl } from '../transport/http.js';
 import { interpolateAny, RuntimeContext } from '../execution/interpolation.js';
 import { JobCase, JobHttpConfig, normalizeSteps } from '../core/schema.js';
 import { defaultRuntime } from '../data/run-data.js';
@@ -66,7 +66,7 @@ export async function executeJobCase(
   runtime.input = { ...(opts.runtimeInputs ?? {}) };
   runtime.run.startedAt = nowIso();
   const resolvedHttp = resolveJobHttpConfig(job.http, runtime);
-  const http = new HttpTransport(artifacts, {
+  const http = new HttpTransportImpl(artifacts, {
     ...resolvedHttp,
     verboseArtifacts: !!opts.verbose,
     poolRegistry: opts.poolRegistry,

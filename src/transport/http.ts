@@ -8,7 +8,7 @@ import { jsonStringifySafe, writeJson } from '../utils/fs-json.js';
 import { getDefaultHttpPoolRegistry } from '../services/http-pool.js';
 import type { Artifacts } from '../modules/types.js';
 import { CookieJar, mergeCookieHeaders } from './cookies.js';
-import type { HttpMethod, HttpRequestOptions, HttpResponse } from './types.js';
+import type { HttpMethod, HttpRequestOptions, HttpResponse, HttpTransport } from './types.js';
 
 interface HttpTransportArtifacts extends Artifacts {
   nextIndex(): number;
@@ -47,14 +47,13 @@ interface HttpTransportSharedState {
 }
 
 /**
- * HTTP client used inside action handlers.
+ * Internal HTTP transport implementation.
  *
- * The transport is usually provided through `ctx.http`. It is preconfigured
- * from the job's top-level `http` block, keeps a shared cookie jar across the
- * whole run, and records requests and responses into run artifacts
- * automatically.
+ * Module authors interact with `HttpTransport` (the interface from
+ * `transport/types.ts`). This class is constructed by the job runner and
+ * should not appear in the public SDK surface.
  */
-export class HttpTransport {
+export class HttpTransportImpl implements HttpTransport {
   private readonly debug = debugNs('http');
   private shared: HttpTransportSharedState;
 
@@ -74,8 +73,8 @@ export class HttpTransport {
    * The derived transport shares the same cookie jar, connection pools, and
    * artifact recording as the original transport.
    */
-  withDefaults(opts?: { baseUrl?: string; defaultHeaders?: Record<string, string> }): HttpTransport {
-    const derived = new HttpTransport(this.artifacts, {
+  withDefaults(opts?: { baseUrl?: string; defaultHeaders?: Record<string, string> }): HttpTransportImpl {
+    const derived = new HttpTransportImpl(this.artifacts, {
       ...this.opts,
       ...opts,
       defaultHeaders: mergeDefaultHeaders(this.opts?.defaultHeaders, opts?.defaultHeaders),

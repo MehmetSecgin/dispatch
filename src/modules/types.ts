@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { RuntimeContext } from '../execution/interpolation.js';
 import type { JobStep } from '../core/schema.js';
-import type { HttpTransport } from '../transport/http.js';
+import type { HttpTransport } from '../transport/types.js';
 
 /**
  * Return value from an action handler.

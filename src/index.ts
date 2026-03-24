@@ -9,4 +9,4 @@ export type {
 } from './modules/types.js';
 export type { JobStep } from './core/schema.js';
 export type { RuntimeContext } from './execution/interpolation.js';
-export type { HttpResponse, HttpMethod, HttpRequestOptions } from './transport/types.js';
+export type { HttpTransport, HttpResponse, HttpMethod, HttpRequestOptions } from './transport/types.js';

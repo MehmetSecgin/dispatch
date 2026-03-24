@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-const NamespaceSchema = z
+export const NamespaceSchema = z
   .string()
   .min(1)
   .regex(/^[a-z0-9][a-z0-9_-]*$/, 'namespace must match /^[a-z0-9][a-z0-9_-]*$/');
@@ -23,6 +23,10 @@ export const RecallSchema = z.object({
   namespace: NamespaceSchema,
   key: MemoryKeySchema,
   defaultValue: z.unknown().optional(),
+});
+
+export const ListSchema = z.object({
+  namespace: NamespaceSchema.optional(),
 });
 
 export const ForgetSchema = z.discriminatedUnion('all', [
