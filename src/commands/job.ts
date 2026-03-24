@@ -834,6 +834,7 @@ export function registerJobCommands(
         meta,
         moduleResolution: readJsonMaybe(moduleResolutionPath),
         activityLog: parseActivityLog(path.join(runDir, 'activity.log')),
+        stepResults: readJsonMaybe(path.join(runDir, 'step-results.json')),
         calls,
       };
 

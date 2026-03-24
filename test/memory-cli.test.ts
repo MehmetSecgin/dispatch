@@ -100,6 +100,22 @@ describe('memory CLI', () => {
         },
       },
     });
+
+    const prefixInspectResult = runCli(['memory', 'inspect', '--namespace', 'reference-data', '--prefix', 'catalog.primary.'], homeDir);
+
+    expect(prefixInspectResult.status).toBe(0);
+    expect(prefixInspectResult.json).toEqual({
+      namespace: 'reference-data',
+      path: memoryPath,
+      prefix: 'catalog.primary',
+      keys: ['catalog.primary.payload'],
+      count: 1,
+      values: {
+        payload: {
+          entryCount: 1,
+        },
+      },
+    });
   });
 
   it('returns NOT_FOUND for a missing namespace', () => {

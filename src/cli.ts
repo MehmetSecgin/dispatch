@@ -13,6 +13,7 @@ import { defaultRuntime } from './data/run-data.js';
 import { createRenderer, formatCliError, isColorEnabled, paint } from './output/renderer.js';
 import { loadModuleRegistry } from './modules/index.js';
 import {
+  listMemoryByPrefix,
   listMemoryNamespaces,
   readMemoryNamespace,
   resolveMemoryPath,
@@ -236,6 +237,7 @@ async function main(): Promise<void> {
     .command('inspect')
     .description('Inspect one memory namespace')
     .requiredOption('--namespace <name>')
+    .option('--prefix <prefix>', 'Filter to one dotted key prefix')
     .action((cmd) => {
       const opts = program.opts();
       const renderer = createRenderer({
@@ -252,6 +254,28 @@ async function main(): Promise<void> {
           human: `Error: ${message}`,
         });
         process.exitCode = exitCodeForCliError(cliErrorFromCode('NOT_FOUND', message));
+        return;
+      }
+      if (cmd.prefix) {
+        const listed = listMemoryByPrefix(configDir, namespace, String(cmd.prefix));
+        const out = {
+          namespace,
+          path: filePath,
+          prefix: listed.prefix,
+          keys: listed.keys,
+          count: listed.count,
+          values: listed.contents,
+        };
+        renderer.render({
+          json: out,
+          human: [
+            `Namespace: ${namespace}`,
+            `Path:      ${filePath}`,
+            `Prefix:    ${listed.prefix}`,
+            `Count:     ${listed.count}`,
+            JSON.stringify(out.values, null, 2),
+          ],
+        });
         return;
       }
       const out = {

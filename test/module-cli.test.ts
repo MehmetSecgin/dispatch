@@ -424,6 +424,39 @@ describe('module CLI', () => {
     );
   });
 
+  it('shows memory.recall exports in inspect and schema output', () => {
+    const inspectResult = runCli(['module', 'inspect', 'memory']);
+    const schemaResult = runCli(['schema', 'action', '--name', 'memory.recall', '--print']);
+
+    expect(inspectResult.status).toBe(0);
+    expect(inspectResult.json?.actions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'memory.recall',
+          exportsSchema: expect.objectContaining({
+            type: 'object',
+            properties: expect.objectContaining({
+              found: expect.objectContaining({ type: 'boolean' }),
+              namespace: expect.objectContaining({ type: 'string' }),
+              key: expect.objectContaining({ type: 'string' }),
+            }),
+          }),
+        }),
+      ]),
+    );
+
+    expect(schemaResult.status).toBe(0);
+    expect(schemaResult.json).toEqual(
+      expect.objectContaining({
+        action: 'memory.recall',
+        exportsSchema: expect.objectContaining({
+          type: 'object',
+          required: expect.arrayContaining(['value']),
+        }),
+      }),
+    );
+  });
+
   it('separates case jobs and seed jobs in human inspect output', () => {
     const result = runCliHuman(['module', 'inspect', 'jsonplaceholder']);
 

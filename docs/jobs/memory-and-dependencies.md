@@ -10,8 +10,8 @@ If a value only matters inside one run, use `step.*` or `run.*`. Persistent memo
 
 Step values may come from either:
 
-- `step.<id>.response.*` for transport-honest action results
-- `step.<id>.exports.*` for same-run workflow values intentionally emitted by the action
+- `step.<id>.response` or `step.<id>.response.*` for transport-honest action results
+- `step.<id>.exports` or `step.<id>.exports.*` for same-run workflow values intentionally emitted by the action
 
 Use `exports` when an action generates or finalizes a value during execution and later steps need that exact value, but the server response should stay unchanged.
 
@@ -28,6 +28,22 @@ If the job wants a stable workflow-level name, use step capture to promote selec
 ```
 
 Later steps can use `${run.workflowId}` instead of repeating `${step.publish.exports.generatedId}`.
+
+`memory.recall` also exports its recalled result directly, so capture works naturally:
+
+```json
+{
+  "id": "recall-price",
+  "action": "memory.recall",
+  "capture": {
+    "latestPrice": "exports.value"
+  },
+  "payload": {
+    "namespace": "catalog",
+    "key": "prices.latest"
+  }
+}
+```
 
 ## Memory namespaces
 
@@ -82,8 +98,86 @@ Rules:
 - `key` is a dotted path
 - path segments must be non-empty
 - `memory.store` replaces the target value
+- `memory.store-many` validates the full batch first, then writes all entries in one handler pass
 - `memory.recall` returns the stored value or `defaultValue`
+- `memory.recall-many` returns ordered `{ key, found, value }` results
+- `memory.list` may filter one dotted key prefix inside a namespace
 - `memory.forget` removes one key or clears one namespace with `all: true`
+
+## Value semantics
+
+Dispatch preserves runtime types for full-expression interpolation values. These all keep their native value shapes:
+
+```json
+{
+  "value": "${step.lookup.response}",
+  "payload": "${step.publish.exports.request}",
+  "items": "${step.seed.response.value.items}"
+}
+```
+
+Embedded expressions inside larger strings still stringify:
+
+```json
+{
+  "title": "Seeded ${step.lookup.response.key}"
+}
+```
+
+Canonical examples:
+
+```json
+{
+  "id": "store-response-snapshot",
+  "action": "memory.store",
+  "payload": {
+    "namespace": "catalog",
+    "key": "snapshots.latest-response",
+    "value": "${step.lookup.response}"
+  }
+}
+```
+
+```json
+{
+  "id": "store-many-products",
+  "action": "memory.store-many",
+  "payload": {
+    "namespace": "catalog",
+    "source": [
+      {
+        "id": "p1",
+        "payload": {
+          "prices": [1, 2, 3],
+          "meta": { "tags": ["featured"] }
+        }
+      }
+    ],
+    "keyJsonPath": "$.id",
+    "valueJsonPath": "$.payload",
+    "keyPrefix": "products"
+  }
+}
+```
+
+For array sources, `valueJsonPath` should usually be set explicitly to the part of each element you want to store. The default is `$.value`, which is the natural match for object-map sources that are exposed as `{ "key": ..., "value": ... }` pairs.
+
+```json
+{
+  "id": "store-many-rates",
+  "action": "memory.store-many",
+  "payload": {
+    "namespace": "catalog",
+    "source": {
+      "EUR": 1.08,
+      "GBP": 0.86
+    },
+    "keyJsonPath": "$.key",
+    "valueJsonPath": "$.value",
+    "keyPrefix": "rates"
+  }
+}
+```
 
 ## Job kinds
 
@@ -100,6 +194,7 @@ Case jobs are the portable, replayable workflow form.
 
 - may use `memory.recall`
 - may not use `memory.store`
+- may not use `memory.store-many`
 - may not use `memory.forget`
 
 ### Seed jobs
@@ -107,7 +202,10 @@ Case jobs are the portable, replayable workflow form.
 Seed jobs are the explicit place to populate or clear durable memory.
 
 - may use `memory.store`
+- may use `memory.store-many`
 - may use `memory.recall`
+- may use `memory.recall-many`
+- may use `memory.list`
 - may use `memory.forget`
 
 This keeps normal workflow jobs shareable and side-effect-light while making durable cache/bootstrap behavior explicit.
@@ -120,10 +218,12 @@ Dispatch exposes a small read-only inspection surface:
 dispatch memory list
 dispatch memory inspect --namespace <name>
 dispatch memory inspect --namespace jsonplaceholder-reference
+dispatch memory inspect --namespace jsonplaceholder-reference --prefix users
 ```
 
 - `memory list` shows the discovered namespace files under `~/.dispatch/memory/`
 - `memory inspect` prints the full JSON contents of one namespace
+- `memory inspect --prefix ...` narrows the view to one dotted key prefix
 
 These commands are intentionally read-only. Durable memory mutation still happens through seed jobs, not ad hoc CLI writes.
 

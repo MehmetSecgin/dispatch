@@ -99,6 +99,7 @@ describe('interpolateAny', () => {
   it('reads step exports for full-expression and embedded values', () => {
     const out = interpolateAny(
       {
+        exported: '${step.sample.exports}',
         id: '${step.sample.exports.generatedId}',
         request: '${step.sample.exports.request}',
         title: 'Event ${step.sample.exports.generatedId}',
@@ -107,12 +108,38 @@ describe('interpolateAny', () => {
     );
 
     expect(out).toEqual({
+      exported: {
+        generatedId: 'id-123',
+        request: {
+          id: 99,
+          tags: ['featured'],
+        },
+      },
       id: 'id-123',
       request: {
         id: 99,
         tags: ['featured'],
       },
       title: 'Event id-123',
+    });
+  });
+
+  it('reads whole step responses for full-expression values', () => {
+    const out = interpolateAny(
+      {
+        response: '${step.sample.response}',
+      },
+      runtimeContext(),
+    );
+
+    expect(out).toEqual({
+      response: {
+        id: 42,
+        variants: ['alpha', 'beta', 'gamma'],
+        config: {
+          count: 1,
+        },
+      },
     });
   });
 

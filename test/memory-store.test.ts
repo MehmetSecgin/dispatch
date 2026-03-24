@@ -5,10 +5,13 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   clearMemoryNamespace,
   forgetMemoryValue,
+  listMemoryByPrefix,
   readMemoryNamespace,
   recallMemoryValue,
+  recallMemoryValues,
   resolveMemoryPath,
   storeMemoryValue,
+  storeMemoryValues,
 } from '../src/modules/builtin/memory/store.ts';
 
 function makeConfigDir(): string {
@@ -91,5 +94,57 @@ describe('memory store', () => {
       },
     });
     expect(fs.existsSync(resolveMemoryPath(configDir, 'reference-data'))).toBe(true);
+  });
+
+  it('stores many entries in one write and preserves nested object and array values', () => {
+    const configDir = makeConfigDir();
+    storeMemoryValues(configDir, 'reference-data', [
+      {
+        key: 'catalog.products.p1',
+        value: {
+          prices: [1, 2, 3],
+          meta: { tags: ['featured'] },
+        },
+      },
+      {
+        key: 'catalog.products.p2',
+        value: ['bundle', { enabled: true }],
+      },
+    ]);
+
+    expect(readMemoryNamespace(configDir, 'reference-data')).toEqual({
+      catalog: {
+        products: {
+          p1: {
+            prices: [1, 2, 3],
+            meta: { tags: ['featured'] },
+          },
+          p2: ['bundle', { enabled: true }],
+        },
+      },
+    });
+  });
+
+  it('lists stored entries under a prefix and recalls many keys with defaults', () => {
+    const configDir = makeConfigDir();
+    storeMemoryValues(configDir, 'reference-data', [
+      { key: 'catalog.products.p1', value: { id: 'p1' } },
+      { key: 'catalog.products.p2', value: { id: 'p2' } },
+    ]);
+
+    expect(listMemoryByPrefix(configDir, 'reference-data', 'catalog.products.')).toEqual({
+      prefix: 'catalog.products',
+      keys: ['catalog.products.p1', 'catalog.products.p2'],
+      count: 2,
+      contents: {
+        p1: { id: 'p1' },
+        p2: { id: 'p2' },
+      },
+    });
+
+    expect(recallMemoryValues(configDir, 'reference-data', ['catalog.products.p1', 'catalog.products.p3'], 'missing')).toEqual([
+      { key: 'catalog.products.p1', found: true, value: { id: 'p1' } },
+      { key: 'catalog.products.p3', found: false, value: 'missing' },
+    ]);
   });
 });

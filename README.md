@@ -44,7 +44,10 @@ developer (natural language)
 | Action          | Description                            |
 | --------------- | -------------------------------------- |
 | `memory.store`  | Store a value by key in a namespace    |
+| `memory.store-many` | Store many values from one source collection |
 | `memory.recall` | Recall a value by key from a namespace |
+| `memory.recall-many` | Recall many values by key from a namespace |
+| `memory.list`   | Inspect namespaces or filter one key prefix |
 | `memory.forget` | Forget one key or clear one namespace  |
 
 ---
@@ -146,8 +149,8 @@ A job case is a portable JSON file: shareable, versionable, replayable.
 
 - Actions are always namespaced as `module.action`
 - Use `${input.<name>}` for caller-supplied runtime inputs declared under top-level `inputs`
-- Use `${step.<id>.response.*}` for prior response data
-- Use `${step.<id>.exports.*}` for same-run workflow values
+- Use `${step.<id>.response}` or `${step.<id>.response.*}` for prior response data
+- Use `${step.<id>.exports}` or `${step.<id>.exports.*}` for same-run workflow values
 - Use `capture` only to promote `exports.*` into `run.*`
 - Keep same-run values in `step.*` or `run.*`, not in persistent memory
 
@@ -227,6 +230,7 @@ run-output/<runId>/
   job.case.resolved.json    — resolved with interpolation applied
   meta.json                 — run metadata
   module_resolution.json    — which module handled each action
+  step-results.json         — sanitized step responses, exports, diagnostics
 ```
 
 Written on both success and failure. Assert offline. Replay without network.
@@ -288,6 +292,7 @@ dispatch defaults set --action <module.action> --file <path>
 dispatch defaults unset --action <module.action>
 dispatch memory list
 dispatch memory inspect --namespace <name>
+dispatch memory inspect --namespace <name> --prefix <key.path>
 ```
 
 ### Utilities

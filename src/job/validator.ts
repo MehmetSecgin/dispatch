@@ -161,7 +161,7 @@ export function validateJobCase(
     const step = steps[i];
     const payload = applyActionDefaults(step.action, step.payload ?? {}, actionDefaults);
 
-    if (jobKind === 'case' && (step.action === 'memory.store' || step.action === 'memory.forget')) {
+    if (jobKind === 'case' && (step.action === 'memory.store' || step.action === 'memory.store-many' || step.action === 'memory.forget')) {
       issues.push({
         code: 'DISALLOWED_MEMORY_MUTATION',
         stepId: step.id,
@@ -422,7 +422,7 @@ function validateInterpolationString(input: {
       continue;
     }
 
-    const stepExpr = expr.match(/^step\.([^.]+)\.(response|exports)\..+$/);
+    const stepExpr = expr.match(/^step\.([^.]+)\.(response|exports)(?:\..+)?$/);
     if (stepExpr) {
       if (!input.allowStepReferences) {
         input.issues.push({

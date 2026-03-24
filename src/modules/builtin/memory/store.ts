@@ -2,6 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 type MemoryState = Record<string, unknown>;
+export interface MemoryEntry {
+  key: string;
+  value: unknown;
+}
 
 function sanitizeNamespace(namespace: string): string {
   const sanitized = String(namespace || '')
@@ -40,6 +44,18 @@ function deletePath(target: MemoryState, segments: string[]): boolean {
   const deleted = deletePath(next as MemoryState, rest);
   if (deleted && Object.keys(next as MemoryState).length === 0) delete target[head];
   return deleted;
+}
+
+function setPath(target: MemoryState, segments: string[], value: unknown): void {
+  let cursor: MemoryState = target;
+  for (const segment of segments.slice(0, -1)) {
+    const current = cursor[segment];
+    if (!current || typeof current !== 'object' || Array.isArray(current)) {
+      cursor[segment] = {};
+    }
+    cursor = cursor[segment] as MemoryState;
+  }
+  cursor[segments[segments.length - 1]] = value;
 }
 
 function readPath(target: unknown, segments: string[]): { found: boolean; value: unknown } {
@@ -96,16 +112,13 @@ export function writeMemoryNamespace(configDir: string, namespace: string, state
 
 export function storeMemoryValue(configDir: string, namespace: string, key: string, value: unknown): void {
   const state = readMemoryNamespace(configDir, namespace);
-  const segments = splitKeyPath(key);
-  let cursor: MemoryState = state;
-  for (const segment of segments.slice(0, -1)) {
-    const current = cursor[segment];
-    if (!current || typeof current !== 'object' || Array.isArray(current)) {
-      cursor[segment] = {};
-    }
-    cursor = cursor[segment] as MemoryState;
-  }
-  cursor[segments[segments.length - 1]] = value;
+  setPath(state, splitKeyPath(key), value);
+  writeMemoryNamespace(configDir, namespace, state);
+}
+
+export function storeMemoryValues(configDir: string, namespace: string, entries: MemoryEntry[]): void {
+  const state = readMemoryNamespace(configDir, namespace);
+  for (const entry of entries) setPath(state, splitKeyPath(entry.key), entry.value);
   writeMemoryNamespace(configDir, namespace, state);
 }
 
@@ -130,4 +143,56 @@ export function clearMemoryNamespace(configDir: string, namespace: string): numb
   const removed = Object.keys(state).length;
   writeMemoryNamespace(configDir, namespace, {});
   return removed;
+}
+
+export function recallMemoryValues(
+  configDir: string,
+  namespace: string,
+  keys: string[],
+  defaultValue?: unknown,
+): Array<{ key: string; found: boolean; value: unknown }> {
+  return keys.map((key) => {
+    const recalled = recallMemoryValue(configDir, namespace, key);
+    return {
+      key,
+      found: recalled.found,
+      value: recalled.found ? recalled.value : defaultValue,
+    };
+  });
+}
+
+export function listMemoryByPrefix(
+  configDir: string,
+  namespace: string,
+  prefix: string,
+): { prefix: string; keys: string[]; count: number; contents: unknown } {
+  const normalizedPrefix = String(prefix || '').replace(/\.+$/g, '').trim();
+  if (!normalizedPrefix) return { prefix: normalizedPrefix, keys: [], count: 0, contents: {} };
+
+  const match = readPath(readMemoryNamespace(configDir, namespace), splitKeyPath(normalizedPrefix));
+  if (!match.found) {
+    return {
+      prefix: normalizedPrefix,
+      keys: [],
+      count: 0,
+      contents: {},
+    };
+  }
+
+  if (!match.value || typeof match.value !== 'object' || Array.isArray(match.value)) {
+    return {
+      prefix: normalizedPrefix,
+      keys: [normalizedPrefix],
+      count: 1,
+      contents: match.value,
+    };
+  }
+
+  const keys = Object.keys(match.value as MemoryState).map((child) => `${normalizedPrefix}.${child}`);
+  return {
+    prefix: normalizedPrefix,
+    keys,
+    count: keys.length,
+    contents: match.value,
+  };
 }

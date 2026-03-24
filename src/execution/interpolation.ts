@@ -92,11 +92,11 @@ function evaluateExpression(exprRaw: string, ctx: RuntimeContext): unknown {
     return value == null ? '' : value;
   }
   if (expr.startsWith('step.')) {
-    const match = expr.match(/^step\.([^.]+)\.(response|exports)\.(.+)$/);
+    const match = expr.match(/^step\.([^.]+)\.(response|exports)(?:\.(.+))?$/);
     if (!match) return '';
     const stepId = match[1];
     const stateKey = match[2] as 'response' | 'exports';
-    const dotPath = match[3];
+    const dotPath = match[3] ?? '';
     const step = ctx.steps[stepId];
     const state = step?.[stateKey];
     if (state == null) return '';

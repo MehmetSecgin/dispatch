@@ -20,7 +20,7 @@
           "namespace": "jsonplaceholder-reference",
           "key": "users.user-1",
           "value": {
-            "payload": "${jsonpath(step:user, $)}",
+            "payload": "${step.user.response}",
             "meta": {
               "cachedAt": "${run.startedAt}",
               "source": "jsonplaceholder.get-user",

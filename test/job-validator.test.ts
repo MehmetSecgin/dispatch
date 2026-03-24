@@ -318,6 +318,42 @@ describe('validateJobCase (flow-only)', () => {
     expect(result.issues.some(i => i.code === 'MODULE_VALIDATION_ERROR')).toBe(false);
   });
 
+  it('accepts direct step response and exports references during static validation', async () => {
+    const job = parseJob({
+      schemaVersion: 1,
+      jobType: 'root-step-references',
+      scenario: {
+        steps: [
+          { id: 'store', action: 'memory.store', payload: { namespace: 'demo', key: 'n', value: { ok: true } } },
+          { id: 'recall', action: 'memory.recall', payload: { namespace: 'demo', key: 'n' } },
+          {
+            id: 'copy-response',
+            action: 'memory.store',
+            payload: {
+              namespace: 'demo',
+              key: 'snapshot.response',
+              value: '${step.recall.response}',
+            },
+          },
+          {
+            id: 'copy-exports',
+            action: 'memory.store',
+            payload: {
+              namespace: 'demo',
+              key: 'snapshot.exports',
+              value: '${step.recall.exports}',
+            },
+          },
+        ],
+      },
+    });
+
+    const { registry } = await loadModuleRegistry();
+    const result = validateJobCase(job, registry, {}, { jobKind: 'seed' });
+    expect(result.valid).toBe(true);
+    expect(result.issues.some(i => i.code === 'INVALID_INTERPOLATION')).toBe(false);
+  });
+
   it('still rejects non-interpolated literal type mismatches during static validation', async () => {
     const job = parseJob({
       schemaVersion: 1,
@@ -351,6 +387,32 @@ describe('validateJobCase (flow-only)', () => {
       jobType: 'bad-case-memory-store',
       scenario: {
         steps: [{ id: 's1', action: 'memory.store', payload: { namespace: 'demo', key: 'x', value: 1 } }],
+      },
+    });
+
+    const result = validateJobCase(job, undefined, {}, { jobKind: 'case' });
+    expect(result.valid).toBe(false);
+    expect(result.issues.some(i => i.code === 'DISALLOWED_MEMORY_MUTATION')).toBe(true);
+  });
+
+  it('rejects memory.store-many in case jobs', () => {
+    const job = parseJob({
+      schemaVersion: 1,
+      jobType: 'bad-case-memory-store-many',
+      scenario: {
+        steps: [
+          {
+            id: 's1',
+            action: 'memory.store-many',
+            payload: {
+              namespace: 'demo',
+              source: [{ id: 'x', payload: { enabled: true } }],
+              keyJsonPath: '$.id',
+              valueJsonPath: '$.payload',
+              keyPrefix: 'items',
+            },
+          },
+        ],
       },
     });
 

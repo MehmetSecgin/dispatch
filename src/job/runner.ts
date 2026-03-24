@@ -34,6 +34,15 @@ interface JobRunSummary {
   error: string | null;
 }
 
+interface StepResultArtifact {
+  stepId: string;
+  action: string;
+  detail: string | null;
+  response: unknown;
+  exports: unknown;
+  diagnostics: Record<string, unknown>;
+}
+
 export class JobRunExecutionError extends Error {
   readonly summary: JobRunSummary;
 
@@ -115,6 +124,7 @@ export async function executeJobCase(
   let failedStep: { id: string; action: string } | null = null;
   let failedStepIndex: number | null = null;
   let executionError: Error | null = null;
+  const stepResults: StepResultArtifact[] = [];
 
   const runStep = async (stepIdx: number, onProgress?: (message: string) => void) => {
     const step = steps[stepIdx];
@@ -181,6 +191,14 @@ export async function executeJobCase(
       redactDebug(result.response),
       redactDebug(result.exports),
     );
+    stepResults.push({
+      stepId: step.id,
+      action: step.action,
+      detail: result.detail ?? null,
+      response: result.response ?? {},
+      exports: result.exports ?? {},
+      diagnostics: result.diagnostics ?? {},
+    });
     return result;
   };
 
@@ -260,6 +278,8 @@ export async function executeJobCase(
   } catch (err) {
     executionError = err instanceof Error ? err : new Error(String(err));
   }
+
+  writeJson(path.join(artifacts.runDir, 'step-results.json'), sanitizeValue(stepResults));
 
   const summary: JobRunSummary = {
     cliVersion: opts.cliVersion,

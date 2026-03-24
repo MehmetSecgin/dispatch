@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vitest';
 import { resolveMemoryPath } from '../src/modules/builtin/memory/store.ts';
+import { readJson } from '../src/utils/fs-json.ts';
 import { startRegistryFixture } from './helpers/registry-fixture.ts';
 
 const THIS_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -816,6 +817,293 @@ describe('job CLI', () => {
       status: 'SUCCESS',
       runDir: expect.any(String),
     }));
+  });
+
+  it('supports memory.recall capture and direct root step references', () => {
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-job-cli-test-'));
+    const casePath = path.join(homeDir, 'memory-root-refs.job.seed.json');
+    fs.writeFileSync(
+      casePath,
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          jobType: 'memory-root-refs',
+          scenario: {
+            steps: [
+              {
+                id: 'seed',
+                action: 'memory.store',
+                payload: {
+                  namespace: 'demo',
+                  key: 'source',
+                  value: {
+                    items: [1, 2],
+                    meta: { total: 2 },
+                  },
+                },
+              },
+              {
+                id: 'recall',
+                action: 'memory.recall',
+                payload: {
+                  namespace: 'demo',
+                  key: 'source',
+                },
+                capture: {
+                  remembered: 'exports.value',
+                },
+              },
+              {
+                id: 'store-response',
+                action: 'memory.store',
+                payload: {
+                  namespace: 'demo',
+                  key: 'snapshot.response',
+                  value: '${step.recall.response}',
+                },
+              },
+              {
+                id: 'store-exports',
+                action: 'memory.store',
+                payload: {
+                  namespace: 'demo',
+                  key: 'snapshot.exports',
+                  value: '${step.recall.exports}',
+                },
+              },
+              {
+                id: 'store-captured',
+                action: 'memory.store',
+                payload: {
+                  namespace: 'demo',
+                  key: 'captured.value',
+                  value: '${run.remembered}',
+                },
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+
+    const result = runCli(['job', 'run', '--case', casePath], { HOME: homeDir });
+
+    expect(result.status).toBe(0);
+    expect(readJson(resolveMemoryPath(path.join(homeDir, '.dispatch'), 'demo'))).toEqual({
+      source: {
+        items: [1, 2],
+        meta: { total: 2 },
+      },
+      snapshot: {
+        response: {
+          found: true,
+          namespace: 'demo',
+          key: 'source',
+          value: {
+            items: [1, 2],
+            meta: { total: 2 },
+          },
+        },
+        exports: {
+          found: true,
+          namespace: 'demo',
+          key: 'source',
+          value: {
+            items: [1, 2],
+            meta: { total: 2 },
+          },
+        },
+      },
+      captured: {
+        value: {
+          items: [1, 2],
+          meta: { total: 2 },
+        },
+      },
+    });
+  });
+
+  it('supports memory.store-many, memory.recall-many, and exposes step results in job dump', () => {
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-job-cli-test-'));
+    const casePath = path.join(homeDir, 'memory-store-many.job.seed.json');
+    fs.writeFileSync(
+      casePath,
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          jobType: 'memory-store-many',
+          scenario: {
+            steps: [
+              {
+                id: 'store-rates',
+                action: 'memory.store-many',
+                payload: {
+                  namespace: 'demo',
+                  source: {
+                    EUR: 1.08,
+                    GBP: 0.86,
+                  },
+                  keyJsonPath: '$.key',
+                  valueJsonPath: '$.value',
+                  keyPrefix: 'rates',
+                },
+              },
+              {
+                id: 'store-products',
+                action: 'memory.store-many',
+                payload: {
+                  namespace: 'demo',
+                  source: [
+                    {
+                      id: 'p1',
+                      payload: {
+                        prices: [1, 2, 3],
+                        meta: { tags: ['featured'] },
+                      },
+                    },
+                    {
+                      id: 'p2',
+                      payload: {
+                        prices: [5],
+                        meta: { tags: ['sale', 'bundle'] },
+                      },
+                    },
+                  ],
+                  keyJsonPath: '$.id',
+                  valueJsonPath: '$.payload',
+                  keyPrefix: 'products',
+                },
+              },
+              {
+                id: 'recall-many',
+                action: 'memory.recall-many',
+                payload: {
+                  namespace: 'demo',
+                  keys: ['rates.EUR', 'products.p1', 'products.missing'],
+                  defaultValue: {
+                    missing: true,
+                  },
+                },
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+
+    const result = runCli(['job', 'run', '--case', casePath], { HOME: homeDir });
+
+    expect(result.status).toBe(0);
+    expect(readJson(resolveMemoryPath(path.join(homeDir, '.dispatch'), 'demo'))).toEqual({
+      rates: {
+        EUR: 1.08,
+        GBP: 0.86,
+      },
+      products: {
+        p1: {
+          prices: [1, 2, 3],
+          meta: { tags: ['featured'] },
+        },
+        p2: {
+          prices: [5],
+          meta: { tags: ['sale', 'bundle'] },
+        },
+      },
+    });
+
+    const dump = runCli(['job', 'dump', '--run-id', String(result.json?.runId)], { HOME: homeDir });
+
+    expect(dump.status).toBe(0);
+    expect(dump.json?.stepResults).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          stepId: 'store-products',
+          action: 'memory.store-many',
+          response: expect.objectContaining({
+            stored: true,
+            count: 2,
+            keys: ['products.p1', 'products.p2'],
+          }),
+        }),
+        expect.objectContaining({
+          stepId: 'recall-many',
+          action: 'memory.recall-many',
+          response: expect.objectContaining({
+            namespace: 'demo',
+            foundCount: 2,
+            missingKeys: ['products.missing'],
+            results: expect.arrayContaining([
+              expect.objectContaining({ key: 'rates.EUR', found: true, value: 1.08 }),
+              expect.objectContaining({
+                key: 'products.p1',
+                found: true,
+                value: {
+                  prices: [1, 2, 3],
+                  meta: { tags: ['featured'] },
+                },
+              }),
+              expect.objectContaining({ key: 'products.missing', found: false, value: { missing: true } }),
+            ]),
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it('fails memory.store-many without partial writes when the derived key is unresolved', () => {
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-job-cli-test-'));
+    const casePath = path.join(homeDir, 'memory-store-many-fail.job.seed.json');
+    fs.writeFileSync(
+      casePath,
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          jobType: 'memory-store-many-fail',
+          scenario: {
+            steps: [
+              {
+                id: 'store-bad',
+                action: 'memory.store-many',
+                payload: {
+                  namespace: 'demo',
+                  source: [
+                    { id: 'ok', payload: { enabled: true } },
+                    { payload: { enabled: false } },
+                  ],
+                  keyJsonPath: '$.id',
+                  valueJsonPath: '$.payload',
+                  keyPrefix: 'products',
+                },
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+
+    const result = runCli(['job', 'run', '--case', casePath], { HOME: homeDir });
+
+    expect(result.status).not.toBe(0);
+    expect(result.json).toEqual(
+      expect.objectContaining({
+        status: 'error',
+        details: expect.objectContaining({
+          result: expect.objectContaining({
+            error: 'memory.store-many source[1] produced invalid key',
+          }),
+        }),
+      }),
+    );
+    expect(fs.existsSync(resolveMemoryPath(path.join(homeDir, '.dispatch'), 'demo'))).toBe(false);
   });
 
   it('resolves env-backed credential profiles into ctx.credential without putting secrets in the job payload', () => {
