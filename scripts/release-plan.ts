@@ -2,7 +2,6 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import process from 'node:process';
 import semver from 'semver';
-import packageJson from '../package.json' with { type: 'json' };
 
 export type ReleaseLevel = 'none' | 'patch' | 'minor' | 'major';
 
@@ -36,6 +35,7 @@ const RELEASE_LABELS: Record<string, ReleaseLevel> = {
   'release:minor': 'minor',
   'release:major': 'major',
 };
+const PACKAGE_NAME = 'dispatchkit';
 
 function git(args: string[]): string {
   return execFileSync('git', args, { encoding: 'utf8' }).trim();
@@ -68,13 +68,15 @@ export function normalizeTagVersion(tag: string | null): string {
   return version;
 }
 
-export function resolveBaseVersion(candidates: Array<string | null | undefined>): string {
-  const versions = candidates
-    .map((candidate) => normalizeTagVersion(candidate ?? null))
-    .filter((value, index, all) => all.indexOf(value) === index)
-    .sort(semver.rcompare);
+export function resolveBaseVersion(input: {
+  publishedVersion: string | null;
+  highestTag: string | null;
+}): string {
+  if (input.publishedVersion) {
+    return normalizeTagVersion(input.publishedVersion);
+  }
 
-  return versions[0] ?? '0.0.0';
+  return normalizeTagVersion(input.highestTag);
 }
 
 export function resolveReleaseLevel(labels: string[]): ReleaseLevel {
@@ -213,11 +215,11 @@ async function main(): Promise<void> {
 
   const pr = await fetchMergedPullRequest(repo, sha, token);
   const labels = (pr.labels ?? []).map((label) => label.name).filter((value): value is string => Boolean(value));
-  const publishedVersion = latestPublishedVersion(packageJson.name);
+  const publishedVersion = latestPublishedVersion(PACKAGE_NAME);
   const highestTag = highestReleaseTag();
   const plan = buildReleasePlan({
     headTag: headReleaseTag(),
-    lastTag: `v${resolveBaseVersion([highestTag, publishedVersion])}`,
+    lastTag: `v${resolveBaseVersion({ publishedVersion, highestTag })}`,
     labels,
     prNumber: pr.number,
     prTitle: pr.title,

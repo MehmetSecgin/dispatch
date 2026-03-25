@@ -70,7 +70,11 @@ describe('release-plan', () => {
     expect(normalizeTagVersion(null)).toBe('0.0.0');
   });
 
-  it('uses the highest known release version as the base', () => {
-    expect(resolveBaseVersion(['v0.1.13', '0.1.14', 'v0.1.12'])).toBe('0.1.14');
+  it('prefers npm as the canonical published version', () => {
+    expect(resolveBaseVersion({ publishedVersion: '0.1.14', highestTag: 'v0.1.13' })).toBe('0.1.14');
+  });
+
+  it('falls back to the highest tag when the package is not published yet', () => {
+    expect(resolveBaseVersion({ publishedVersion: null, highestTag: 'v0.1.13' })).toBe('0.1.13');
   });
 });
