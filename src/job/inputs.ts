@@ -12,7 +12,7 @@ interface ResolvedJobInputsResult {
   values: JsonObject;
 }
 
-function parseRawInputs(rawInputs: string[]): { values: Record<string, string>; issues: JobInputIssue[] } {
+export function parseRawInputs(rawInputs: string[]): { values: Record<string, string>; issues: JobInputIssue[] } {
   const values: Record<string, string> = {};
   const issues: JobInputIssue[] = [];
 

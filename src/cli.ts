@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import fs from 'node:fs';
 import packageJson from '../package.json' with { type: 'json' };
 import { registerJobCommands } from './commands/job.js';
+import { registerRunCommand } from './commands/run.js';
 import { registerModuleCommands } from './commands/module.js';
 import { registerSkillCommands } from './commands/skill.js';
 import { registerDoctorCommand } from './commands/doctor.js';
@@ -51,6 +52,7 @@ async function main(): Promise<void> {
   });
 
   registerJobCommands(program, { cliVersion: CLI_VERSION });
+  registerRunCommand(program, { cliVersion: CLI_VERSION });
   registerModuleCommands(program, { cliVersion: CLI_VERSION });
   registerSkillCommands(program);
   registerDoctorCommand(program, { cliVersion: CLI_VERSION });
