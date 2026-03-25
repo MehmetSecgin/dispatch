@@ -35,6 +35,7 @@ const RELEASE_LABELS: Record<string, ReleaseLevel> = {
   'release:minor': 'minor',
   'release:major': 'major',
 };
+const PACKAGE_NAME = 'dispatchkit';
 
 function git(args: string[]): string {
   return execFileSync('git', args, { encoding: 'utf8' }).trim();
@@ -53,8 +54,9 @@ export function headReleaseTag(): string | null {
   return gitOrNull(['tag', '--points-at', 'HEAD', '--list', 'v*']);
 }
 
-export function latestReleaseTag(): string | null {
-  return gitOrNull(['describe', '--tags', '--abbrev=0', '--match', 'v*']);
+export function highestReleaseTag(): string | null {
+  const output = gitOrNull(['tag', '--list', 'v*', '--sort=-version:refname']);
+  return output?.split('\n')[0] ?? null;
 }
 
 export function normalizeTagVersion(tag: string | null): string {
@@ -64,6 +66,17 @@ export function normalizeTagVersion(tag: string | null): string {
     throw new Error(`Invalid release tag: ${tag}`);
   }
   return version;
+}
+
+export function resolveBaseVersion(input: {
+  publishedVersion: string | null;
+  highestTag: string | null;
+}): string {
+  if (input.publishedVersion) {
+    return normalizeTagVersion(input.publishedVersion);
+  }
+
+  return normalizeTagVersion(input.highestTag);
 }
 
 export function resolveReleaseLevel(labels: string[]): ReleaseLevel {
@@ -157,6 +170,21 @@ async function fetchMergedPullRequest(repo: string, sha: string, token: string):
   return merged;
 }
 
+function latestPublishedVersion(packageName: string): string | null {
+  try {
+    const raw = execFileSync('npm', ['view', packageName, 'version', '--json'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw) as string;
+    return semver.valid(parsed) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function writeOutputs(plan: ReleasePlan): void {
   const outputPath = process.env.GITHUB_OUTPUT;
   if (!outputPath) return;
@@ -187,9 +215,11 @@ async function main(): Promise<void> {
 
   const pr = await fetchMergedPullRequest(repo, sha, token);
   const labels = (pr.labels ?? []).map((label) => label.name).filter((value): value is string => Boolean(value));
+  const publishedVersion = latestPublishedVersion(PACKAGE_NAME);
+  const highestTag = highestReleaseTag();
   const plan = buildReleasePlan({
     headTag: headReleaseTag(),
-    lastTag: latestReleaseTag(),
+    lastTag: `v${resolveBaseVersion({ publishedVersion, highestTag })}`,
     labels,
     prNumber: pr.number,
     prTitle: pr.title,

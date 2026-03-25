@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildReleasePlan, normalizeTagVersion, resolveReleaseLevel } from '../scripts/release-plan.ts';
+import { buildReleasePlan, normalizeTagVersion, resolveBaseVersion, resolveReleaseLevel } from '../scripts/release-plan.ts';
 
 describe('release-plan', () => {
   it('defaults to a patch release when no release label is present', () => {
@@ -68,5 +68,13 @@ describe('release-plan', () => {
 
   it('normalizes missing tags to 0.0.0', () => {
     expect(normalizeTagVersion(null)).toBe('0.0.0');
+  });
+
+  it('prefers npm as the canonical published version', () => {
+    expect(resolveBaseVersion({ publishedVersion: '0.1.14', highestTag: 'v0.1.13' })).toBe('0.1.14');
+  });
+
+  it('falls back to the highest tag when the package is not published yet', () => {
+    expect(resolveBaseVersion({ publishedVersion: null, highestTag: 'v0.1.13' })).toBe('0.1.13');
   });
 });
