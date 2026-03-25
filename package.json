@@ -1,6 +1,6 @@
 {
   "name": "dispatchkit",
-  "version": "0.1.14",
+  "version": "0.0.0-dev",
   "description": "Deterministic dispatch CLI for flow-first job orchestration",
   "scripts": {
     "prebuild": "node scripts/write-skill-version.mjs",
@@ -11,8 +11,7 @@
     "format:check": "prettier --check src/**/*.ts",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
-    "release": "semantic-release",
-    "release:dry-run": "semantic-release --dry-run --no-ci",
+    "release:plan": "tsx scripts/release-plan.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -60,19 +59,13 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@semantic-release/commit-analyzer": "^13.0.1",
-    "@semantic-release/github": "^12.0.6",
-    "@semantic-release/npm": "^13.1.5",
-    "@semantic-release/release-notes-generator": "^14.1.0",
     "@types/debug": "^4.1.12",
     "@types/node": "^25.3.2",
     "@types/semver": "^7.7.1",
     "@typescript-eslint/eslint-plugin": "^8.56.1",
     "@typescript-eslint/parser": "^8.56.1",
-    "conventional-changelog-conventionalcommits": "^9.3.0",
     "eslint": "^10.0.3",
     "prettier": "^3.8.1",
-    "semantic-release": "^24.2.9",
     "tsup": "^8.5.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",

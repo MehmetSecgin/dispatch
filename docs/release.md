@@ -2,31 +2,46 @@
 
 ## Current policy
 
-`dispatchkit` releases are PR-first, merge-triggered, and versioned by commit
-history rather than manual `package.json` edits.
+`dispatchkit` releases are PR-first and merge-triggered.
 
-When code lands on `main`, GitHub Actions runs `semantic-release` from the
-merged commit. It decides whether to release, computes the next version from
-the commits since the previous tag, publishes the npm package, pushes the
-matching `v*` tag, and creates the GitHub release.
+There is no manual version bump, no manual tag step, and no `semantic-release`.
+When a PR lands on `main`, GitHub Actions decides the next version, stamps that
+version into `package.json` and `package-lock.json` on the runner only,
+publishes to npm with trusted publishing, pushes the matching `v*` tag, and
+creates the GitHub release.
 
-`main` is protected. Release changes must land through a pull request and pass
-the required `validate` check before the release workflow runs.
+The repo keeps a development version in git. Published versions are derived in
+CI from the latest release tag plus the merged PR's release level.
 
-Release automation expects npm trusted publishing to be configured for this repo
-so GitHub Actions can publish without a long-lived npm token.
-Do not set `NPM_TOKEN` for the release workflow. Trusted publishing should use
-GitHub OIDC only.
+`main` is protected. Releases are expected to come from merged PRs, not local
+machines and not direct pushes.
 
-Why:
+## Release levels
 
-- the project is still early
-- release judgment still matters
-- package contents and release cadence are still settling
+Release level comes from PR labels:
 
-## Stable release flow
+- `release:major`
+- `release:minor`
+- `release:patch`
+- `release:none`
 
-1. Run the code validation checks on the intended release candidate:
+Default behavior:
+
+- if no release label is present, the PR is released as a patch
+
+Examples:
+
+- latest tag `v0.1.14` + unlabeled merged PR -> `v0.1.15`
+- latest tag `v0.1.14` + `release:minor` -> `v0.2.0`
+- latest tag `v0.1.14` + `release:major` -> `v1.0.0`
+- `release:none` -> skip publish, tag, and GitHub release
+
+Conflicting release labels fail the workflow.
+
+## Release flow
+
+1. Open a PR with code changes only.
+2. Run the normal validation checks:
 
    ```bash
    npm run check
@@ -34,56 +49,28 @@ Why:
    npm run build
    ```
 
-2. Open a pull request with the code changes only. Do not manually bump
-   `package.json` or `package-lock.json` for releases.
+3. Optionally add one release label to the PR.
+4. Merge the PR into `main`.
+5. The `Release` workflow:
 
-3. Merge the pull request after the required checks pass.
-
-4. The `Release` workflow runs on the merged branch commit and:
-
-   - installs dependencies with `npm ci`
+   - resolves the merged PR for the pushed commit
+   - reads the release label, defaulting to patch
+   - computes the next version from the latest `v*` tag
+   - updates package files in the workflow workspace only
    - reruns `npm run check`, `npm test`, and `npm run build`
-   - decides whether the merged commits justify a release
-   - computes the next version from commit messages and tags
-   - publishes the package to npm
-   - pushes the matching `v<version>` tag
-   - creates the GitHub release notes
+   - publishes with npm trusted publishing
+   - pushes the new `v*` tag
+   - creates the GitHub release
 
-This repo intentionally does not use a separate tag-triggered `npm publish`
-workflow. `semantic-release` is the component that decides the version,
-publishes from the merged commit, and then creates the matching tag and GitHub
-release.
+Do not manually publish, tag, or bump package versions in a PR.
 
-Never publish or tag from an unmerged local-only commit. The published package,
-the release tag, and the GitHub release should all come from the same merged
-commit on the release branch.
+## npm auth
 
-### Commit types
+Publishing is handled by npm trusted publishing with GitHub OIDC.
 
-Release automation follows conventional commit semantics:
-
-- `feat:` -> minor release
-- `fix:` -> patch release
-- `update:` -> patch release
-- `perf:` -> patch release
-- `type!:` or `BREAKING CHANGE:` -> major release
-- other commit types do not trigger a release by default
-
-If you use squash merges, the final PR title becomes the release-driving commit
-message, so it needs to use the intended conventional commit type.
-
-Example:
-
-```bash
-# in the release PR
-npm run check
-npm test
-npm run build
-
-# use a conventional PR title / squash commit title like:
-# feat: add direct action runs
-# fix: handle missing credential env vars
-```
+- keep `id-token: write` in the release workflow
+- do not set `NPM_TOKEN`
+- do not publish from local machines for normal releases
 
 ## Package identity
 
@@ -91,43 +78,3 @@ npm run build
 - installed binary: `dispatch`
 
 This is intentional because the `dispatch` package name is already taken on npm.
-
-## Beta releases
-
-Use semver prereleases and the npm `beta` dist-tag.
-
-Examples:
-
-- `0.1.0-beta.1`
-- `0.1.0-beta.2`
-
-Follow the same PR-first flow as stable releases. Versions with a prerelease
-suffix like `0.1.0-beta.1` are published automatically from the `beta` branch
-with the npm `beta` dist-tag by the release workflow.
-
-Users who want beta builds can install:
-
-```bash
-npm install -g dispatchkit@beta
-```
-
-Stable users continue to get the `latest` tag.
-
-Current automation:
-
-- CI workflow on pull requests and `main`:
-  - `npm run check`
-  - `npm test`
-  - `npm run build`
-- release workflow on pushed `main` and `beta` commits:
-  - rerun `npm run check`
-  - rerun `npm test`
-  - rerun `npm run build`
-  - analyze commit messages since the previous tag
-  - compute the next release version automatically
-  - publish to npm from the merged commit
-  - push the matching `v*` tag
-  - create the GitHub release
-
-Ordinary merges that do not contain release-worthy commit types complete
-successfully and produce no new version.
