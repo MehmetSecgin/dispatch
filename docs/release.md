@@ -15,6 +15,8 @@ the required `validate` check before the release workflow runs.
 
 Release automation expects npm trusted publishing to be configured for this repo
 so GitHub Actions can publish without a long-lived npm token.
+Do not set `NPM_TOKEN` for the release workflow. Trusted publishing should use
+GitHub OIDC only.
 
 Why:
 
@@ -46,6 +48,11 @@ Why:
    - publishes the package to npm
    - pushes the matching `v<version>` tag
    - creates the GitHub release notes
+
+This repo intentionally does not use a separate tag-triggered `npm publish`
+workflow. `semantic-release` is the component that decides the version,
+publishes from the merged commit, and then creates the matching tag and GitHub
+release.
 
 Never publish or tag from an unmerged local-only commit. The published package,
 the release tag, and the GitHub release should all come from the same merged
