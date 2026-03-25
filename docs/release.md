@@ -4,7 +4,8 @@
 
 At this stage, `dispatchkit` releases are published manually.
 
-We use GitHub Actions for verification later, but we do not auto-publish from CI yet.
+GitHub Actions automatically publishes the per-release changelog once a `v*` tag
+is pushed, but we do not auto-publish the npm package from CI yet.
 
 Why:
 
@@ -47,6 +48,9 @@ Why:
    git push origin main --tags
    ```
 
+6. GitHub Actions creates or updates the matching GitHub release and fills its
+   changelog from the commits since the previous tag.
+
 Example:
 
 ```bash
@@ -86,6 +90,16 @@ Stable users continue to get the `latest` tag.
 
 ## Future automation
 
+Current automation:
+
+- CI workflow on pull requests and `main`:
+  - `npm run check`
+  - `npm test`
+  - `npm run build`
+- release-changelog workflow on pushed tags like `v0.1.0`
+  - create or update the GitHub release
+  - render changelog entries from git history between tags
+
 When the release process is more settled, the preferred automation model is:
 
 - CI workflow on pull requests and `main`:
@@ -95,6 +109,6 @@ When the release process is more settled, the preferred automation model is:
 - release-candidate workflow after the version bump:
   - `npm publish --dry-run`
 - release workflow on pushed tags like `v0.1.0`
-  - publish to npm
+  - publish to npm after the manual publish path is retired
 
 We should avoid publishing on every push to `main`.

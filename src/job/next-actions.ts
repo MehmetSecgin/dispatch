@@ -136,3 +136,15 @@ export function nextActionsForRunMany(input: {
     },
   );
 }
+
+export function nextActionsForActionRun(input: { runId: string }): NextAction[] {
+  return renderNextActions(
+    [
+      {
+        command: 'dispatch job readable --run-id {runId}',
+        description: 'full request/response trace',
+      },
+    ],
+    { runId: input.runId },
+  );
+}
