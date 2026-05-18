@@ -43,6 +43,11 @@ const JobInputSchema = z.object({
   description: z.string().min(1).optional(),
 });
 
+const JobHttpSchema = z.object({
+  baseUrl: z.string().min(1).optional(),
+  defaultHeaders: z.record(z.string(), z.string()).optional(),
+});
+
 const StepSchema = z
   .object({
     id: z.string().min(1).optional(),
@@ -52,6 +57,7 @@ const StepSchema = z
     payload: z.record(z.string(), z.unknown()).optional(),
     capture: StepCaptureSchema.optional(),
     credential: z.string().min(1).optional(),
+    http: JobHttpSchema.optional(),
   })
   .superRefine((v, ctx) => {
     if (v.atRelative && v.atAbsolute) {
@@ -83,11 +89,6 @@ const JobDependenciesSchema = z.object({
   modules: z.array(ModuleDependencySchema).optional(),
   memory: z.array(MemoryDependencySchema).optional(),
   http: HttpDependencySchema.optional(),
-});
-
-const JobHttpSchema = z.object({
-  baseUrl: z.string().min(1).optional(),
-  defaultHeaders: z.record(z.string(), z.string()).optional(),
 });
 
 export const JobCaseSchema = z.object({
@@ -172,6 +173,15 @@ export interface JobStep {
    * handler runs and exposes the resulting object at `ctx.credential`.
    */
   credential?: string;
+
+  /**
+   * Optional per-step HTTP override.
+   *
+   * Deep-merged over the job-level `http` block at runtime: `baseUrl` is
+   * replaced wholesale, `defaultHeaders` are shallow-merged (step-level
+   * keys win, unrelated job-level keys are preserved).
+   */
+  http?: JobHttpConfig;
 }
 
 export function normalizeSteps(job: JobCase): JobStep[] {

@@ -421,6 +421,66 @@ describe('validateJobCase (flow-only)', () => {
     expect(result.issues.some(i => i.code === 'DISALLOWED_MEMORY_MUTATION')).toBe(true);
   });
 
+  it('accepts step-level http override with env interpolation', () => {
+    const job = parseJob({
+      schemaVersion: 1,
+      jobType: 'step-http-override',
+      http: {
+        baseUrl: '${env.DISPATCH_PRIMARY_BASE_URL}',
+      },
+      scenario: {
+        steps: [
+          { id: 'publish', action: 'flow.sleep', payload: { duration: '1s' } },
+          {
+            id: 'assign',
+            action: 'flow.sleep',
+            payload: { duration: '1s' },
+            http: {
+              baseUrl: '${env.DISPATCH_SECONDARY_BASE_URL}',
+              defaultHeaders: {
+                'x-brand': '${env.DISPATCH_BRAND}',
+              },
+            },
+          },
+        ],
+      },
+    });
+
+    const result = validateJobCase(job);
+    expect(result.valid).toBe(true);
+    expect(result.issues).toHaveLength(0);
+  });
+
+  it('rejects step interpolation inside step http config', () => {
+    const job = parseJob({
+      schemaVersion: 1,
+      jobType: 'step-http-step-ref',
+      scenario: {
+        steps: [
+          { id: 'publish', action: 'flow.sleep', payload: { duration: '1s' } },
+          {
+            id: 'assign',
+            action: 'flow.sleep',
+            payload: { duration: '1s' },
+            http: {
+              defaultHeaders: {
+                'x-id': '${step.publish.exports.generatedId}',
+              },
+            },
+          },
+        ],
+      },
+    });
+
+    const result = validateJobCase(job);
+    expect(result.valid).toBe(false);
+    expect(
+      result.issues.some(
+        (i) => i.code === 'INVALID_INTERPOLATION' && i.path === 'http.defaultHeaders.x-id' && i.stepId === 'assign',
+      ),
+    ).toBe(true);
+  });
+
   it('allows memory.store in seed jobs', () => {
     const job = parseJob({
       schemaVersion: 1,

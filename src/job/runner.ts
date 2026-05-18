@@ -156,9 +156,17 @@ export async function executeJobCase(
       throw new Error(`Validation failed for ${step.action}: ${errors.join('; ')}`);
     }
 
+    const stepHttpOverride = resolveStepHttpConfig(step.http, runtime, step.id);
+    const stepHttp = stepHttpOverride
+      ? http.withDefaults({
+          baseUrl: stepHttpOverride.baseUrl,
+          defaultHeaders: stepHttpOverride.defaultHeaders,
+        })
+      : http;
+
     const result = await resolved.definition.handler(
       {
-        http,
+        http: stepHttp,
         artifacts,
         runtime,
         step,
@@ -456,6 +464,40 @@ export function resolveJobHttpConfig(
     for (const [name, value] of Object.entries(resolved.defaultHeaders)) {
       if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') {
         throw new Error(`Job http.defaultHeaders.${name} must resolve to a string-compatible scalar`);
+      }
+      defaultHeaders[name] = String(value);
+    }
+    out.defaultHeaders = defaultHeaders;
+  }
+
+  return out;
+}
+
+export function resolveStepHttpConfig(
+  httpConfig: JobHttpConfig | undefined,
+  runtime: RuntimeContext,
+  stepId: string,
+): JobHttpConfig | undefined {
+  if (!httpConfig) return undefined;
+  const resolved = interpolateAny(httpConfig, runtime);
+  if (!isJsonObject(resolved)) throw new Error(`Step ${stepId} http config must resolve to an object`);
+
+  const out: JobHttpConfig = {};
+  if (resolved.baseUrl !== undefined) {
+    if (typeof resolved.baseUrl !== 'string' || resolved.baseUrl.trim().length === 0) {
+      throw new Error(`Step ${stepId} http.baseUrl must resolve to a non-empty string`);
+    }
+    out.baseUrl = resolved.baseUrl;
+  }
+
+  if (resolved.defaultHeaders !== undefined) {
+    if (!isJsonObject(resolved.defaultHeaders)) {
+      throw new Error(`Step ${stepId} http.defaultHeaders must resolve to an object`);
+    }
+    const defaultHeaders: Record<string, string> = {};
+    for (const [name, value] of Object.entries(resolved.defaultHeaders)) {
+      if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') {
+        throw new Error(`Step ${stepId} http.defaultHeaders.${name} must resolve to a string-compatible scalar`);
       }
       defaultHeaders[name] = String(value);
     }

@@ -185,26 +185,65 @@ function hasOwnPath(obj: unknown, pathSpec: string): boolean {
   return true;
 }
 
+function mergeStepHttp(
+  jobHttp: JobHttpConfig | undefined,
+  stepHttp: JobHttpConfig | undefined,
+): JobHttpConfig | undefined {
+  if (!jobHttp && !stepHttp) return undefined;
+  const merged: JobHttpConfig = {};
+  const baseUrl = stepHttp?.baseUrl ?? jobHttp?.baseUrl;
+  if (baseUrl !== undefined) merged.baseUrl = baseUrl;
+  const jobHeaders = jobHttp?.defaultHeaders;
+  const stepHeaders = stepHttp?.defaultHeaders;
+  if (jobHeaders || stepHeaders) {
+    const headers: Record<string, string> = {};
+    if (jobHeaders) for (const [k, v] of Object.entries(jobHeaders)) headers[k] = v;
+    if (stepHeaders) for (const [k, v] of Object.entries(stepHeaders)) headers[k] = v;
+    merged.defaultHeaders = headers;
+  }
+  return merged;
+}
+
 export function inspectHttpDependencies(
   job: JobCase,
   effectiveHttp?: JobHttpConfig,
 ): Pick<DependencyCheckResult, 'issues' | 'valid'> {
   const issues: DependencyIssue[] = [];
   const requiredPaths = job.dependencies?.http?.required ?? [];
-  const resolvedHttp = effectiveHttp ?? job.http;
-  for (const pathSpec of requiredPaths) {
-    if (hasOwnPath(resolvedHttp, pathSpec)) continue;
-    issues.push({
-      code: 'MISSING_HTTP_DEPENDENCY',
-      dependencyType: 'http',
-      httpPath: pathSpec,
-      message: `Missing required HTTP config http.${pathSpec}`,
-    });
+  if (requiredPaths.length === 0) return { valid: true, issues };
+
+  const resolvedJobHttp = effectiveHttp ?? job.http;
+  const steps = job.scenario.steps;
+  const anyStepOverride = steps.some((step) => step.http);
+
+  if (!anyStepOverride) {
+    for (const pathSpec of requiredPaths) {
+      if (hasOwnPath(resolvedJobHttp, pathSpec)) continue;
+      issues.push({
+        code: 'MISSING_HTTP_DEPENDENCY',
+        dependencyType: 'http',
+        httpPath: pathSpec,
+        message: `Missing required HTTP config http.${pathSpec}`,
+      });
+    }
+    return { valid: issues.length === 0, issues };
   }
-  return {
-    valid: issues.length === 0,
-    issues,
-  };
+
+  for (let idx = 0; idx < steps.length; idx += 1) {
+    const step = steps[idx];
+    const stepId = step.id ?? `step_${idx + 1}`;
+    const merged = mergeStepHttp(resolvedJobHttp, step.http);
+    for (const pathSpec of requiredPaths) {
+      if (hasOwnPath(merged, pathSpec)) continue;
+      issues.push({
+        code: 'MISSING_HTTP_DEPENDENCY',
+        dependencyType: 'http',
+        httpPath: pathSpec,
+        message: `Missing required HTTP config http.${pathSpec} for step ${stepId}`,
+      });
+    }
+  }
+  return { valid: issues.length === 0, issues };
 }
 
 export function resolveEffectiveJobHttpConfig(
