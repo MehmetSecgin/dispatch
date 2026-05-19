@@ -51,7 +51,7 @@
       "entry": "dist/index.mjs"
     },
     {
-      "name": "admin",
+      "name": "auth",
       "version": "0.1.0",
       "entry": "index.mjs",
       "metadata": {

@@ -74,8 +74,8 @@ export interface DispatchModule {
   /**
    * Module namespace prefix.
    *
-   * If the name is `admin`, an action declared as `login` is resolved as
-   * `admin.login`.
+   * If the name is `auth`, an action declared as `login` is resolved as
+   * `auth.login`.
    *
    * This must match `module.json.name`.
    */
@@ -262,7 +262,7 @@ export interface ActionContext {
 
   /**
    * Resolve another action by its fully qualified key, such as
-   * `flow.poll` or `admin.login`.
+   * `flow.poll` or `auth.login`.
    *
    * Returns `null` when no loaded module provides that action.
    */
@@ -284,7 +284,7 @@ export interface ActionContext {
  * after layer precedence is applied.
  */
 export interface ResolvedAction {
-  /** Fully qualified action key, for example `admin.login`. */
+  /** Fully qualified action key, for example `auth.login`. */
   actionKey: string;
   /** Module namespace that owns the action. */
   moduleName: string;
