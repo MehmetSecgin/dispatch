@@ -8,6 +8,7 @@ import { coerceInputsFromSchema } from '../execution/schema-coerce.js';
 import { applyActionDefaults, loadActionDefaults } from '../execution/action-defaults.js';
 import { RunArtifacts } from '../artifacts/run-artifacts.js';
 import { HttpTransportImpl } from '../transport/http.js';
+import { clearCookieJar, loadCookieJar, resolveJarPath, saveCookieJar } from '../transport/cookie-jar-store.js';
 import { getDefaultHttpPoolRegistry } from '../services/http-pool.js';
 import { defaultRuntime } from '../data/run-data.js';
 import { nowIso } from '../core/time.js';
@@ -145,6 +146,9 @@ export function registerRunCommand(
     .option('--base-url <url>', 'HTTP base URL')
     .option('--header <key=value>', 'HTTP header', collectRepeatedOption, [])
     .option('--credential <field=ENV_VAR>', 'Credential field mapping', collectRepeatedOption, [])
+    .option('--session <name>', 'Persist cookies under $DISPATCH_HOME/sessions/<name>/cookies.json')
+    .option('--cookie-jar <path>', 'Persist cookies at an explicit file path')
+    .option('--clear-session', 'Delete the persisted cookie jar before running')
     .action(async (actionKey: string, cmd) => {
       const opts = program.opts<CliOpts>();
       const color = isColorEnabled(opts);
@@ -255,11 +259,46 @@ export function registerRunCommand(
         steps: [buildResolutionRow(step.id, step.action, resolved)],
       });
 
+      let jarPath: ReturnType<typeof resolveJarPath> = null;
+      try {
+        jarPath = resolveJarPath({
+          session: typeof cmd.session === 'string' ? cmd.session : undefined,
+          cookieJar: typeof cmd.cookieJar === 'string' ? cmd.cookieJar : undefined,
+        });
+      } catch (error) {
+        const err = cliErrorFromCode('USAGE_ERROR', error instanceof Error ? error.message : String(error), {
+          action: resolved.actionKey,
+          warnings,
+        });
+        renderer.render({
+          json: jsonErrorEnvelope(err),
+          human: `Error: ${err.message}`,
+        });
+        process.exitCode = exitCodeForCliError(err);
+        return;
+      }
+
+      if (jarPath && cmd.clearSession) clearCookieJar(jarPath.filePath);
+      const initialJar = jarPath ? loadCookieJar(jarPath.filePath) : undefined;
+
+      const poolRegistry = getDefaultHttpPoolRegistry();
       const http = new HttpTransportImpl(artifacts, {
         baseUrl: typeof cmd.baseUrl === 'string' ? cmd.baseUrl : undefined,
         defaultHeaders: headerResult.values,
-        poolRegistry: getDefaultHttpPoolRegistry(),
+        poolRegistry,
+        cookieJar: initialJar,
       });
+
+      const persistJar = (): void => {
+        if (!jarPath) return;
+        try {
+          saveCookieJar(jarPath.filePath, http.getCookieJar());
+        } catch (error) {
+          warnings.push(
+            `Failed to persist cookie jar at ${jarPath.filePath}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      };
 
       const writeSummary = (status: 'SUCCESS' | 'FAILED') => {
         writeJson(path.join(artifacts.runDir, 'summary.json'), {
@@ -295,6 +334,7 @@ export function registerRunCommand(
         }
 
         writeSummary('SUCCESS');
+        persistJar();
         const next = nextActionsForActionRun({ runId: artifacts.runId });
         const summary: ActionRunSummary = {
           ...summaryBase,
@@ -314,6 +354,7 @@ export function registerRunCommand(
         });
       } catch (error) {
         writeSummary('FAILED');
+        persistJar();
         const next = nextActionsForActionRun({ runId: artifacts.runId });
         const code = exitCodeForCliError(error) === 3 ? 'TRANSIENT_ERROR' : 'RUNTIME_ERROR';
         const err = cliErrorFromCode(code, error instanceof Error ? error.message : String(error), {
@@ -331,6 +372,8 @@ export function registerRunCommand(
           ],
         });
         process.exitCode = exitCodeForCliError(err);
+      } finally {
+        await poolRegistry.closeAll();
       }
     });
 }

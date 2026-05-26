@@ -39,6 +39,7 @@ interface HttpTransportConfig {
   defaultHeaders?: Record<string, string>;
   verboseArtifacts?: boolean;
   poolRegistry?: ConnectionPoolProvider;
+  cookieJar?: CookieJar;
 }
 
 interface HttpTransportSharedState {
@@ -62,9 +63,13 @@ export class HttpTransportImpl implements HttpTransport {
     private readonly opts?: HttpTransportConfig,
   ) {
     this.shared = {
-      cookieJar: new CookieJar(),
+      cookieJar: opts?.cookieJar ?? new CookieJar(),
       poolRegistry: opts?.poolRegistry,
     };
+  }
+
+  getCookieJar(): CookieJar {
+    return this.shared.cookieJar;
   }
 
   /**

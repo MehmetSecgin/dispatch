@@ -239,6 +239,29 @@ Written on both success and failure. Assert offline. Replay without network.
 
 ## Commands
 
+### Run (one action)
+
+```bash
+dispatch run <module.action> [--input <key=value>] [--base-url <url>] \
+  [--header <key=value>] [--credential <field=ENV_VAR>] \
+  [--session <name> | --cookie-jar <path>] [--clear-session]
+```
+
+`--session <name>` persists the action's cookie jar at
+`$DISPATCH_HOME/sessions/<name>/cookies.json` (mode `0600`, directory `0700`).
+The next `dispatch run` with the same `--session` reuses it, so a one-shot
+login call can carry its session into later read-only calls:
+
+```bash
+dispatch run my-module.login --credential token=API_TOKEN --session demo
+dispatch run my-module.get-thing --input id=42 --session demo
+```
+
+Cookies past their expiry are dropped on load and on save. Use
+`--clear-session` to wipe the jar before running. `--cookie-jar <path>` is an
+explicit-path escape hatch. The file is rewritten atomically on each run; last
+writer wins across concurrent processes.
+
 ### Jobs
 
 ```bash

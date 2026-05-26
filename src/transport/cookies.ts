@@ -12,6 +12,13 @@ interface StoredCookie {
   createdAt: number;
 }
 
+export const COOKIE_JAR_FORMAT_VERSION = 1;
+
+export interface SerializedCookieJar {
+  version: number;
+  cookies: StoredCookie[];
+}
+
 export class CookieJar {
   private readonly cookies: StoredCookie[] = [];
 
@@ -40,6 +47,30 @@ export class CookieJar {
 
     if (matching.length === 0) return null;
     return matching.map((cookie) => `${cookie.name}=${cookie.value}`).join('; ');
+  }
+
+  serialize(now = Date.now()): SerializedCookieJar {
+    this.pruneExpired(now);
+    return {
+      version: COOKIE_JAR_FORMAT_VERSION,
+      cookies: this.cookies.map((cookie) => ({ ...cookie })),
+    };
+  }
+
+  static deserialize(input: unknown, now = Date.now()): CookieJar {
+    const jar = new CookieJar();
+    if (!input || typeof input !== 'object') return jar;
+    const record = input as { version?: unknown; cookies?: unknown };
+    if (record.version !== COOKIE_JAR_FORMAT_VERSION) return jar;
+    if (!Array.isArray(record.cookies)) return jar;
+
+    for (const raw of record.cookies) {
+      const cookie = normalizeStoredCookie(raw);
+      if (!cookie) continue;
+      if (cookie.expiresAt !== null && cookie.expiresAt <= now) continue;
+      jar.cookies.push(cookie);
+    }
+    return jar;
   }
 
   private pruneExpired(now: number): void {
@@ -84,6 +115,32 @@ export function mergeCookieHeaders(
   return Array.from(merged.entries())
     .map(([name, value]) => `${name}=${value}`)
     .join('; ');
+}
+
+function normalizeStoredCookie(raw: unknown): StoredCookie | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.name !== 'string' || !r.name) return null;
+  if (typeof r.value !== 'string') return null;
+  if (typeof r.domain !== 'string' || !r.domain) return null;
+  if (typeof r.path !== 'string' || !r.path) return null;
+  if (typeof r.hostOnly !== 'boolean') return null;
+  if (typeof r.secure !== 'boolean') return null;
+  if (typeof r.httpOnly !== 'boolean') return null;
+  const expiresAt = r.expiresAt === null ? null : typeof r.expiresAt === 'number' ? r.expiresAt : NaN;
+  if (typeof expiresAt === 'number' && Number.isNaN(expiresAt)) return null;
+  const createdAt = typeof r.createdAt === 'number' ? r.createdAt : Date.now();
+  return {
+    name: r.name,
+    value: r.value,
+    domain: r.domain,
+    hostOnly: r.hostOnly,
+    path: r.path,
+    secure: r.secure,
+    httpOnly: r.httpOnly,
+    expiresAt,
+    createdAt,
+  };
 }
 
 function parseSetCookie(raw: string, url: URL): StoredCookie | null {
