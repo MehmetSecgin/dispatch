@@ -333,6 +333,25 @@ export function validateJobCase(
         allowJsonPathStepScope: true,
       });
     });
+
+    if (step.http) {
+      traverseStrings(
+        step.http,
+        (s, strPath) => {
+          validateInterpolationString({
+            value: s,
+            path: strPath,
+            stepId: step.id,
+            declaredInputs: new Set(Object.keys(job.inputs ?? {})),
+            issues,
+            stepIndex,
+            allowStepReferences: false,
+            allowJsonPathStepScope: false,
+          });
+        },
+        'http',
+      );
+    }
   }
 
   traverseStrings(
