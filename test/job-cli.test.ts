@@ -1159,10 +1159,10 @@ describe('job CLI', () => {
           schemaVersion: 1,
           jobType: 'credential-profile',
           credentials: {
-            adminQa: {
+            apiCreds: {
               fromEnv: {
-                username: 'DISPATCH_ADMIN_USERNAME',
-                password: 'DISPATCH_ADMIN_PASSWORD',
+                username: 'DISPATCH_API_USERNAME',
+                password: 'DISPATCH_API_PASSWORD',
               },
             },
           },
@@ -1171,7 +1171,7 @@ describe('job CLI', () => {
               {
                 id: 'login',
                 action: `${HTTP_FIXTURE_MODULE_NAME}.login`,
-                credential: 'adminQa',
+                credential: 'apiCreds',
                 payload: {},
               },
             ],
@@ -1184,8 +1184,8 @@ describe('job CLI', () => {
     );
 
     const result = runCli(['job', 'run', '--case', path.relative(REPO_ROOT, casePath)], {
-      DISPATCH_ADMIN_USERNAME: 'demo-user',
-      DISPATCH_ADMIN_PASSWORD: 'demo-pass',
+      DISPATCH_API_USERNAME: 'demo-user',
+      DISPATCH_API_PASSWORD: 'demo-pass',
     });
 
     expect(result.status).toBe(0);
@@ -1195,8 +1195,8 @@ describe('job CLI', () => {
     }));
 
     const inputCase = JSON.parse(fs.readFileSync(path.join(result.json?.runDir, 'job.case.input.json'), 'utf8'));
-    expect(inputCase.credentials.adminQa.fromEnv).toEqual({
-      username: 'DISPATCH_ADMIN_USERNAME',
+    expect(inputCase.credentials.apiCreds.fromEnv).toEqual({
+      username: 'DISPATCH_API_USERNAME',
       password: '[REDACTED]',
     });
   });
@@ -1247,10 +1247,10 @@ describe('job CLI', () => {
           schemaVersion: 1,
           jobType: 'missing-credential-env',
           credentials: {
-            adminQa: {
+            apiCreds: {
               fromEnv: {
-                username: 'DISPATCH_ADMIN_USERNAME',
-                password: 'DISPATCH_ADMIN_PASSWORD',
+                username: 'DISPATCH_API_USERNAME',
+                password: 'DISPATCH_API_PASSWORD',
               },
             },
           },
@@ -1259,7 +1259,7 @@ describe('job CLI', () => {
               {
                 id: 'login',
                 action: `${HTTP_FIXTURE_MODULE_NAME}.login`,
-                credential: 'adminQa',
+                credential: 'apiCreds',
                 payload: {},
               },
             ],
@@ -1272,7 +1272,7 @@ describe('job CLI', () => {
     );
 
     const result = runCli(['job', 'run', '--case', path.relative(REPO_ROOT, casePath)], {
-      DISPATCH_ADMIN_USERNAME: 'demo-user',
+      DISPATCH_API_USERNAME: 'demo-user',
     });
 
     expect(result.status).toBe(2);
@@ -1283,7 +1283,7 @@ describe('job CLI', () => {
       details: expect.objectContaining({
         issues: expect.arrayContaining([
           expect.objectContaining({
-            message: expect.stringContaining("Missing required environment variable 'DISPATCH_ADMIN_PASSWORD'"),
+            message: expect.stringContaining("Missing required environment variable 'DISPATCH_API_PASSWORD'"),
           }),
         ]),
       }),

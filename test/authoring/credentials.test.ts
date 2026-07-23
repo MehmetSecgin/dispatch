@@ -15,14 +15,14 @@ function makeCtx(credential?: unknown): ActionContext {
 
 describe('requireCredential', () => {
 	it('returns the credential when present', () => {
-		const cred = { username: 'admin', password: 'secret' };
-		const result = requireCredential<typeof cred>(makeCtx(cred), 'admin.login');
+		const cred = { username: 'user', password: 'secret' };
+		const result = requireCredential<typeof cred>(makeCtx(cred), 'auth.login');
 		expect(result).toBe(cred);
 	});
 
 	it('throws with action name when credential is missing', () => {
-		expect(() => requireCredential(makeCtx(), 'admin.login')).toThrow(
-			'admin.login requires a bound credential profile'
+		expect(() => requireCredential(makeCtx(), 'auth.login')).toThrow(
+			'auth.login requires a bound credential profile'
 		);
 	});
 
